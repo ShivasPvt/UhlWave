@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Valley</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/theme.js"></script>
+  <style type="text/tailwindcss">
+    /* Reusable pieces. chat.js adds these class names to elements it creates. */
+    .bubble { @apply max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-[15px] leading-snug; }
+    .bubble-me { @apply bg-pine text-mist rounded-br-md; }
+    .bubble-them { @apply bg-white text-ink rounded-bl-md shadow-[0_1px_0_rgba(30,58,52,0.08)]; }
+    .bubble-ai { @apply border-2 border-marigold bg-marigold-soft text-marigold-deep rounded-bl-md; }
+    .bubble-pending { @apply opacity-60; }
+    .bubble-failed { @apply ring-2 ring-red-600; }
+    .avatar { @apply relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display text-sm font-bold uppercase; }
+    .dot { @apply absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-pine bg-marigold; }
+    .side-item { @apply flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-pine-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold; }
+    .side-item[aria-current="true"] { @apply bg-pine-600; }
+  </style>
+</head>
+<body class="bg-mist font-body text-ink antialiased">
+  <div id="app" class="flex h-[100dvh] overflow-hidden" data-view="list">
+
+    <!-- Sidebar: who you are, search, your conversations -->
+    <aside id="sidebar" class="flex w-full flex-col bg-pine text-mist md:w-80 md:shrink-0">
+      <header class="flex items-center justify-between px-5 pb-3 pt-5">
+        <div>
+          <p class="font-display text-2xl font-bold leading-none">Valley</p>
+          <p class="mt-1 text-sm text-glacier">
+            <span id="me-name"></span><span id="connection" class="ml-2 text-marigold"></span>
+          </p>
+        </div>
+        <button id="logout" class="rounded-lg px-3 py-1.5 text-sm text-glacier transition hover:bg-pine-600 hover:text-mist focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold">
+          Log out
+        </button>
+      </header>
+
+      <div class="px-4 pb-3">
+        <label for="search" class="sr-only">Find people</label>
+        <input id="search" type="search" placeholder="Find people by username" autocomplete="off"
+               class="w-full rounded-xl bg-pine-600 px-4 py-2.5 text-mist placeholder:text-pine-400 outline-none focus:ring-2 focus:ring-marigold">
+      </div>
+
+      <div id="search-results" class="hidden flex-1 space-y-1 overflow-y-auto px-3 pb-4"></div>
+      <nav id="conversation-list" aria-label="Conversations" class="flex-1 space-y-1 overflow-y-auto px-3 pb-4"></nav>
+    </aside>
+
+    <!-- Main pane -->
+    <section id="chat-pane" class="hidden min-w-0 flex-1 flex-col md:flex">
+
+      <!-- Shown until a conversation is picked -->
+      <div id="empty-state" class="flex flex-1 flex-col items-center justify-center px-8 text-center">
+        <p class="font-display text-3xl font-bold">Pick a chat</p>
+        <p class="mt-2 max-w-xs text-slate">Search for a username to start one, or ask the assistant something.</p>
+        <button id="chat-with-ai" class="mt-6 rounded-xl border-2 border-marigold bg-marigold-soft px-5 py-2.5 font-bold text-marigold-deep transition hover:bg-marigold hover:text-ink focus:outline-none focus-visible:ring-4 focus-visible:ring-marigold/40">
+          Chat with @ai
+        </button>
+      </div>
+
+      <!-- Shown when a conversation is open -->
+      <div id="chat-view" class="hidden min-h-0 flex-1 flex-col">
+        <header class="flex items-center gap-3 border-b border-pine/10 bg-mist px-4 py-3">
+          <button id="back" class="rounded-lg px-2 py-1 text-pine md:hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold" aria-label="Back to conversations">
+            &larr;
+          </button>
+          <div id="chat-avatar"></div>
+          <div class="min-w-0">
+            <h1 id="chat-title" class="truncate font-display text-lg font-bold leading-tight"></h1>
+            <p id="chat-status" class="text-sm text-slate"></p>
+          </div>
+        </header>
+
+        <div id="messages" class="flex-1 space-y-2 overflow-y-auto px-4 py-5 md:px-8" aria-live="polite">
+        </div>
+
+        <p id="typing" class="h-6 px-5 text-sm italic text-slate md:px-9"></p>
+
+        <form id="composer" class="flex items-end gap-2 border-t border-pine/10 bg-mist px-4 py-3 md:px-8">
+          <label for="message-input" class="sr-only">Message</label>
+          <input id="message-input" autocomplete="off" maxlength="4000" placeholder="Message, or mention @ai"
+                 class="min-w-0 flex-1 rounded-xl border border-pine/20 bg-white px-4 py-3 outline-none focus:border-pine focus:ring-4 focus:ring-marigold/30">
+          <button class="rounded-xl bg-pine px-5 py-3 font-bold text-mist transition hover:bg-pine-600 focus:outline-none focus-visible:ring-4 focus-visible:ring-marigold/50">
+            Send
+          </button>
+        </form>
+        <p id="composer-error" class="px-5 pb-2 text-sm text-red-700 md:px-9" role="alert"></p>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/chat.js"></script>
+</body>
+</html>
