@@ -3,96 +3,451 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Valley</title>
+  <title>UhlWave</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="/static/theme.js"></script>
-  <style type="text/tailwindcss">
-    /* Reusable pieces. chat.js adds these class names to elements it creates. */
-    .bubble { @apply max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-[15px] leading-snug; }
-    .bubble-me { @apply bg-pine text-mist rounded-br-md; }
-    .bubble-them { @apply bg-white text-ink rounded-bl-md shadow-[0_1px_0_rgba(30,58,52,0.08)]; }
-    .bubble-ai { @apply border-2 border-marigold bg-marigold-soft text-marigold-deep rounded-bl-md; }
-    .bubble-pending { @apply opacity-60; }
-    .bubble-failed { @apply ring-2 ring-red-600; }
-    .avatar { @apply relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display text-sm font-bold uppercase; }
-    .dot { @apply absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-pine bg-marigold; }
-    .side-item { @apply flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-pine-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold; }
-    .side-item[aria-current="true"] { @apply bg-pine-600; }
-  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link id="chat-font-link" rel="stylesheet" href="data:text/css,">
 </head>
-<body class="bg-mist font-body text-ink antialiased">
-  <div id="app" class="flex h-[100dvh] overflow-hidden" data-view="list">
+<body>
+  <div id="app" class="app" data-view="list">
 
-    <!-- Sidebar: who you are, search, your conversations -->
-    <aside id="sidebar" class="flex w-full flex-col bg-pine text-mist md:w-80 md:shrink-0">
-      <header class="flex items-center justify-between px-5 pb-3 pt-5">
-        <div>
-          <p class="font-display text-2xl font-bold leading-none">Valley</p>
-          <p class="mt-1 text-sm text-glacier">
-            <span id="me-name"></span><span id="connection" class="ml-2 text-marigold"></span>
-          </p>
+    <!-- ===== Sidebar: you, search, your chats ===== -->
+    <aside id="sidebar" class="sidebar">
+      <header>
+        <div class="sidebar__top">
+          <div class="brand">
+            <svg class="wave-mark" viewBox="0 0 30 18" aria-hidden="true"><path d="M2 12C7 2 11 2 15 9s8 7 13-3"/></svg>
+            <span class="brand__name">UhlWave</span>
+          </div>
+          <div class="sidebar__actions">
+            <button id="open-settings" class="icon-btn" aria-label="Settings" title="Settings">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </button>
+            <button id="logout" class="icon-btn" aria-label="Log out" title="Log out">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+            </button>
+          </div>
         </div>
-        <button id="logout" class="rounded-lg px-3 py-1.5 text-sm text-glacier transition hover:bg-pine-600 hover:text-mist focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold">
-          Log out
-        </button>
+        <p class="me"><span id="me-name"></span><span id="connection" class="me__status"></span></p>
       </header>
 
-      <div class="px-4 pb-3">
-        <label for="search" class="sr-only">Find people</label>
-        <input id="search" type="search" placeholder="Find people by username" autocomplete="off"
-               class="w-full rounded-xl bg-pine-600 px-4 py-2.5 text-mist placeholder:text-pine-400 outline-none focus:ring-2 focus:ring-marigold">
-      </div>
-
-      <div id="search-results" class="hidden flex-1 space-y-1 overflow-y-auto px-3 pb-4"></div>
-      <nav id="conversation-list" aria-label="Conversations" class="flex-1 space-y-1 overflow-y-auto px-3 pb-4"></nav>
-    </aside>
-
-    <!-- Main pane -->
-    <section id="chat-pane" class="hidden min-w-0 flex-1 flex-col md:flex">
-
-      <!-- Shown until a conversation is picked -->
-      <div id="empty-state" class="flex flex-1 flex-col items-center justify-center px-8 text-center">
-        <p class="font-display text-3xl font-bold">Pick a chat</p>
-        <p class="mt-2 max-w-xs text-slate">Search for a username to start one, or ask the assistant something.</p>
-        <button id="chat-with-ai" class="mt-6 rounded-xl border-2 border-marigold bg-marigold-soft px-5 py-2.5 font-bold text-marigold-deep transition hover:bg-marigold hover:text-ink focus:outline-none focus-visible:ring-4 focus-visible:ring-marigold/40">
-          Chat with @ai
+      <div class="sidebar__tools">
+        <label for="search" class="sr-only">Search people and messages</label>
+        <input id="search" class="search" type="search" placeholder="Search people or messages" autocomplete="off">
+        <button id="new-group" class="new-group" title="Start a group chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          Group
         </button>
       </div>
 
-      <!-- Shown when a conversation is open -->
-      <div id="chat-view" class="hidden min-h-0 flex-1 flex-col">
-        <header class="flex items-center gap-3 border-b border-pine/10 bg-mist px-4 py-3">
-          <button id="back" class="rounded-lg px-2 py-1 text-pine md:hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-marigold" aria-label="Back to conversations">
-            &larr;
+      <div id="filters" class="filters" role="tablist" aria-label="Show chats"></div>
+
+      <div id="search-results" class="list hidden"></div>
+      <nav id="conversation-list" class="list" aria-label="Conversations"></nav>
+    </aside>
+
+    <!-- ===== Main pane ===== -->
+    <section id="chat-pane" class="pane">
+
+      <!-- Shown until a chat is picked -->
+      <div id="empty-state" class="empty">
+        <svg class="empty__wave wave-mark" viewBox="0 0 30 18" aria-hidden="true"><path d="M2 12C7 2 11 2 15 9s8 7 13-3"/></svg>
+        <p class="empty__title">Pick a chat</p>
+        <p class="empty__text">Search for someone to message, start a group, or ask the assistant something.</p>
+        <button id="chat-with-ai" class="btn btn--quiet">Chat with @ai</button>
+      </div>
+
+      <!-- Shown when a chat is open -->
+      <div id="chat-view" class="chat hidden">
+        <header class="chat-head">
+          <button id="back" class="back-btn" aria-label="Back to chats">&larr;</button>
+          <button id="chat-who" class="chat-who" title="View profile">
+            <span id="chat-avatar"></span>
+            <span class="chat-head__text">
+              <span id="chat-title" class="chat-head__title" role="heading" aria-level="1"></span>
+              <span id="chat-status" class="chat-head__status"></span>
+            </span>
           </button>
-          <div id="chat-avatar"></div>
-          <div class="min-w-0">
-            <h1 id="chat-title" class="truncate font-display text-lg font-bold leading-tight"></h1>
-            <p id="chat-status" class="text-sm text-slate"></p>
+          <button id="call-voice" class="head-btn hidden" aria-label="Voice call" title="Voice call">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          </button>
+          <button id="call-video" class="head-btn hidden" aria-label="Video call" title="Video call">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m23 7-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+          </button>
+          <button id="group-info" class="btn btn--quiet btn--sm hidden">Group info</button>
+          <button id="block-toggle" class="btn btn--danger btn--sm hidden">Block</button>
+          <div class="menu-wrap">
+            <button id="chat-menu-btn" class="head-btn" aria-label="More options" aria-haspopup="menu" aria-expanded="false" title="More">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+            </button>
+            <div id="chat-menu" class="menu hidden" role="menu"></div>
           </div>
         </header>
 
-        <div id="messages" class="flex-1 space-y-2 overflow-y-auto px-4 py-5 md:px-8" aria-live="polite">
+        <!-- Search inside this chat -->
+        <div id="chat-search" class="chat-search hidden">
+          <label for="chat-search-input" class="sr-only">Search this chat</label>
+          <input id="chat-search-input" class="chat-search__input" type="search" placeholder="Search this chat" autocomplete="off">
+          <span id="chat-search-count" class="chat-search__count"></span>
+          <button id="chat-search-up" class="head-btn head-btn--sm" aria-label="Older match" title="Older match">&uarr;</button>
+          <button id="chat-search-down" class="head-btn head-btn--sm" aria-label="Newer match" title="Newer match">&darr;</button>
+          <button id="chat-search-close" class="head-btn head-btn--sm" aria-label="Close search" title="Close">&times;</button>
         </div>
 
-        <p id="typing" class="h-6 px-5 text-sm italic text-slate md:px-9"></p>
+        <!-- Pinned messages -->
+        <button id="pinned-bar" class="pinned-bar hidden" title="Go to pinned message">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 3a1 1 0 0 1 .7 1.7L15 6.4v4.2l2.7 2.7A1 1 0 0 1 17 15h-4v6l-1 1-1-1v-6H7a1 1 0 0 1-.7-1.7L9 10.6V6.4L7.3 4.7A1 1 0 0 1 8 3h8z"/></svg>
+          <span class="pinned-bar__text"><span id="pinned-label" class="pinned-bar__label"></span><span id="pinned-preview" class="pinned-bar__preview"></span></span>
+        </button>
 
-        <form id="composer" class="flex items-end gap-2 border-t border-pine/10 bg-mist px-4 py-3 md:px-8">
+        <div class="messages-wrap">
+          <div id="messages" class="messages" aria-live="polite"></div>
+          <!-- Shown when you've scrolled up: jump back to the newest message -->
+          <button id="jump-latest" class="jump-latest hidden" aria-label="Jump to the latest message">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+            <span id="jump-count" class="jump-latest__count hidden"></span>
+          </button>
+        </div>
+
+        <!-- Secret chats this browser can't read yet -->
+        <div id="secret-banner" class="note note--secret hidden">
+          <span id="secret-banner-text">Unlock secret chats on this device to read and send messages here.</span>
+          <button id="secret-unlock" type="button" class="btn btn--sm btn--primary">Unlock</button>
+        </div>
+
+        <div id="typing" class="typing" aria-live="polite"></div>
+        <p id="blocked-note" class="note note--blocked hidden"></p>
+        <div id="reply-banner" class="note note--reply hidden">
+          <span class="reply-banner__text"><b id="reply-who"></b><span id="reply-text"></span></span>
+          <button id="cancel-reply" type="button" class="close-btn" aria-label="Cancel reply">&times;</button>
+        </div>
+        <div id="edit-banner" class="note note--edit hidden">
+          <span>Editing message</span>
+          <button id="cancel-edit" type="button" class="btn btn--sm btn--quiet">Cancel</button>
+        </div>
+
+        <!-- Shown while recording a voice note -->
+        <div id="recording-bar" class="rec-bar hidden">
+          <span class="rec-dot" aria-hidden="true"></span>
+          <span class="rec-label">Recording</span>
+          <span id="record-time" class="rec-time">0:00</span>
+          <button id="record-cancel" type="button" class="btn btn--quiet">Cancel</button>
+          <button id="record-send" type="button" class="btn btn--primary">Send voice note</button>
+        </div>
+
+        <!-- Emoji, stickers and GIFs (picker.js) -->
+        <div id="picker" class="picker-panel hidden" role="dialog" aria-label="Emoji, stickers and GIFs"></div>
+
+        <!-- The paperclip's menu (interact.js) -->
+        <div id="attach-menu" class="menu attach-menu hidden" role="menu">
+          <button id="attach-file" type="button" class="menu__item" role="menuitem"><span aria-hidden="true">📎</span> Photo or file</button>
+          <button id="loc-btn" type="button" class="menu__item" role="menuitem"><span aria-hidden="true">📍</span> Location</button>
+          <button id="attach-poll" type="button" class="menu__item" role="menuitem"><span aria-hidden="true">📊</span> Poll</button>
+        </div>
+
+        <form id="composer" class="composer">
+          <button id="emoji-btn" type="button" class="tool-btn" aria-label="Emoji, stickers and GIFs" title="Emoji, stickers and GIFs" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/></svg>
+          </button>
+          <button id="attach-btn" type="button" class="tool-btn" aria-label="Attach: file, location or poll" title="Attach a file, share a location or make a poll" aria-haspopup="menu" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <input id="file-input" type="file" multiple class="hidden">
           <label for="message-input" class="sr-only">Message</label>
-          <input id="message-input" autocomplete="off" maxlength="4000" placeholder="Message, or mention @ai"
-                 class="min-w-0 flex-1 rounded-xl border border-pine/20 bg-white px-4 py-3 outline-none focus:border-pine focus:ring-4 focus:ring-marigold/30">
-          <button class="rounded-xl bg-pine px-5 py-3 font-bold text-mist transition hover:bg-pine-600 focus:outline-none focus-visible:ring-4 focus-visible:ring-marigold/50">
-            Send
+          <input id="message-input" class="composer__input" autocomplete="off" maxlength="4000" placeholder="Message, @ai, or /imagine a picture">
+          <button id="mic-btn" type="button" class="tool-btn" aria-label="Record a voice note" title="Record a voice note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10a7 7 0 0 1-14 0"/><path d="M12 17v5"/></svg>
+          </button>
+          <button class="send-btn" aria-label="Send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
           </button>
         </form>
-        <p id="composer-error" class="px-5 pb-2 text-sm text-red-700 md:px-9" role="alert"></p>
+        <p id="composer-error" class="composer-error" role="alert"></p>
       </div>
     </section>
   </div>
 
+  <!-- ===== Settings drawer (settings.js fills in the values) ===== -->
+  <div id="settings" class="drawer hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div id="settings-backdrop" class="backdrop"></div>
+    <div class="drawer__panel">
+      <header class="drawer__head">
+        <h2 id="settings-title" class="drawer__title">Settings</h2>
+        <button id="close-settings" class="close-btn" aria-label="Close settings">&times;</button>
+      </header>
+
+      <div class="drawer__body">
+        <h3 class="set-heading">Profile</h3>
+        <div class="set-card">
+          <div class="account">
+            <div id="set-avatar"></div>
+            <div>
+              <p id="set-username" class="account__name"></p>
+              <p id="set-signin" class="account__how"></p>
+            </div>
+          </div>
+          <div class="photo-actions">
+            <button id="avatar-upload" type="button" class="btn btn--quiet btn--sm">Change photo</button>
+            <button id="avatar-remove" type="button" class="btn btn--danger btn--sm hidden">Remove photo</button>
+            <input id="avatar-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden">
+          </div>
+          <form id="bio-form" class="bio-form">
+            <label class="field" for="bio-input"><span class="field__label">About</span></label>
+            <div class="inline-form">
+              <input id="bio-input" class="input" maxlength="160" placeholder="e.g. CSE '27 · Hostel 4 · ask me about chess">
+              <button class="btn btn--primary">Save</button>
+            </div>
+            <p class="field__hint">Shown on your profile to anyone who taps your name.</p>
+          </form>
+          <form id="username-form">
+            <label class="field" for="new-username"><span class="field__label">Username</span></label>
+            <div class="inline-form">
+              <input id="new-username" class="input" autocomplete="off" maxlength="30">
+              <button class="btn btn--primary">Save</button>
+            </div>
+            <p class="field__hint">3–30 letters, numbers or underscores. People find you by this.</p>
+          </form>
+        </div>
+
+        <h3 class="set-heading">Privacy</h3>
+        <div class="set-card set-card--rows">
+          <div class="set-row">
+            <div><p class="set-label" id="lbl-private">Private account</p>
+              <p class="set-desc">On: people you don't already chat with must send a chat request, and you choose who to accept. They also can't add you to groups.</p></div>
+            <button type="button" class="switch" role="switch" aria-checked="false" aria-labelledby="lbl-private" data-setting="is_private"></button>
+          </div>
+          <div class="set-row">
+            <div><p class="set-label" id="lbl-presence">Show when I'm online</p>
+              <p class="set-desc">Off: you always look offline, and nobody sees when you were last here.</p></div>
+            <button type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="lbl-presence" data-setting="show_presence"></button>
+          </div>
+          <div class="set-row">
+            <div><p class="set-label" id="lbl-receipts">Send read receipts</p>
+              <p class="set-desc">Off: people won't see ✓✓ when you've read their messages, and you won't see theirs either.</p></div>
+            <button type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="lbl-receipts" data-setting="send_read_receipts"></button>
+          </div>
+          <div class="set-row">
+            <div><p class="set-label" id="lbl-typing">Send typing indicators</p>
+              <p class="set-desc">Off: people won't see that you're typing.</p></div>
+            <button type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="lbl-typing" data-setting="send_typing"></button>
+          </div>
+        </div>
+
+        <h3 class="set-heading">Disappearing messages</h3>
+        <div class="set-card">
+          <p class="set-label">New messages I send disappear after</p>
+          <div id="disappear-choices" class="segments" role="group" aria-label="Disappearing message timer"></div>
+          <p class="set-desc">Applies to messages you send from now on. They vanish for everyone in the chat and are deleted from the server.</p>
+        </div>
+
+        <h3 class="set-heading">Secret chats</h3>
+        <div id="e2ee-settings" class="set-card"></div>
+
+        <h3 class="set-heading">Chat lock</h3>
+        <div class="set-card">
+          <p class="set-label">Locked chats PIN</p>
+          <p id="pin-desc" class="set-desc">Lock a chat from its ⋮ menu to hide it in a locked folder that needs this PIN. It's separate from your password.</p>
+          <form id="pin-form" class="stack-sm">
+            <div id="pin-current-wrap" class="hidden">
+              <label class="field" for="pin-current"><span class="field__label">Current PIN</span></label>
+              <input id="pin-current" class="input input--pin" inputmode="numeric" autocomplete="off" maxlength="8" type="password">
+            </div>
+            <label class="field" for="pin-new"><span id="pin-new-label" class="field__label">New PIN (4–8 digits)</span></label>
+            <div class="inline-form">
+              <input id="pin-new" class="input input--pin" inputmode="numeric" autocomplete="off" maxlength="8" type="password">
+              <button id="pin-save" class="btn btn--primary">Set PIN</button>
+            </div>
+          </form>
+          <button id="pin-remove" type="button" class="btn btn--danger btn--sm hidden">Remove PIN and unlock all chats</button>
+        </div>
+
+        <h3 class="set-heading">Appearance</h3>
+        <div id="appearance" class="set-card appearance"></div>
+
+        <h3 class="set-heading">Media auto-download</h3>
+        <div class="set-card set-card--rows">
+          <div class="set-row">
+            <div><p class="set-label" id="lbl-auto-photos">Photos</p>
+              <p class="set-desc">Off: photos show as "Tap to load", to save mobile data.</p></div>
+            <button type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="lbl-auto-photos" data-local="autoPhotos"></button>
+          </div>
+          <div class="set-row">
+            <div><p class="set-label" id="lbl-auto-gifs">GIFs and stickers</p>
+              <p class="set-desc">Off: GIFs wait until you tap them.</p></div>
+            <button type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="lbl-auto-gifs" data-local="autoGifs"></button>
+          </div>
+          <div class="set-row">
+            <div><p class="set-label" id="lbl-auto-voice">Voice notes</p>
+              <p class="set-desc">Off: voice notes load when you press play.</p></div>
+            <button type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="lbl-auto-voice" data-local="autoVoice"></button>
+          </div>
+          <div class="set-row">
+            <div><p class="set-label" id="lbl-auto-docs">Save documents automatically</p>
+              <p class="set-desc">On: files people send you are saved to your Downloads folder as they arrive. Your browser may ask once.</p></div>
+            <button type="button" class="switch" role="switch" aria-checked="false" aria-labelledby="lbl-auto-docs" data-local="autoDocs"></button>
+          </div>
+        </div>
+
+        <h3 class="set-heading">Backup</h3>
+        <div class="set-card">
+          <p class="set-label">Back up your chats</p>
+          <p class="set-desc">Downloads every chat you're in as one file. Locked chats are only included while your locked folder is open.</p>
+          <div class="set-row set-row--flat">
+            <p class="set-label" id="lbl-backup-media">Include photos, voice notes and files</p>
+            <button id="backup-media" type="button" class="switch" role="switch" aria-checked="false" aria-labelledby="lbl-backup-media"></button>
+          </div>
+          <div class="photo-actions">
+            <button id="backup-download" type="button" class="btn btn--primary">Download backup</button>
+            <button id="backup-open" type="button" class="btn btn--quiet">Open a backup</button>
+            <input id="backup-input" type="file" accept="application/json,.json" class="hidden">
+          </div>
+          <p class="set-desc">"Open a backup" shows a backup file's chats here in your browser. Nothing is uploaded.</p>
+        </div>
+
+        <h3 class="set-heading">Notifications and this device</h3>
+        <div class="set-card set-card--rows">
+          <div class="set-row">
+            <div><p class="set-label" id="lbl-notify">Desktop notifications</p>
+              <p class="set-desc" id="notify-desc">Get a pop-up for new messages when this tab is in the background.</p></div>
+            <button type="button" class="switch" role="switch" aria-checked="false" aria-labelledby="lbl-notify" data-local="notify"></button>
+          </div>
+          <div class="set-row">
+            <div><p class="set-label" id="lbl-previews">Hide message previews</p>
+              <p class="set-desc">Hide message text in the chat list and in notifications, for when people can see your screen.</p></div>
+            <button type="button" class="switch" role="switch" aria-checked="false" aria-labelledby="lbl-previews" data-local="hidePreviews"></button>
+          </div>
+          <div class="set-row">
+            <div><p class="set-label" id="lbl-sounds">Sounds</p>
+              <p class="set-desc">A soft pop when you send and a chime when a message arrives.</p></div>
+            <button type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="lbl-sounds" data-local="sounds"></button>
+          </div>
+        </div>
+
+        <h3 class="set-heading">Blocked people</h3>
+        <div class="set-card">
+          <div id="blocked-list" class="blocked-list"></div>
+          <p class="set-desc">Blocked people can't message you, and you won't see them typing. Block someone from the top of your chat with them.</p>
+        </div>
+
+        <h3 class="set-heading">Encryption</h3>
+        <div class="set-card facts">
+          <p class="fact"><span class="fact__icon fact__icon--ok" aria-hidden="true">✓</span>
+            <span><b>Encrypted in transit.</b> When the app is served over HTTPS (as on Render), messages are encrypted between your device and the server.</span></p>
+          <p class="fact"><span class="fact__icon fact__icon--warn" aria-hidden="true">!</span>
+            <span><b>Encrypted in storage.</b> Messages, photos, voice notes and files are stored encrypted (AES-256-GCM), so a leaked or stolen database can't be read.</span></p>
+          <p class="fact"><span class="fact__icon fact__icon--ok" aria-hidden="true">✓</span>
+            <span><b>Secret chats are end-to-end encrypted.</b> In a 🔒 secret chat, messages are encrypted in your browser and only you and the other person can read them, not even the server. Compare the security code to be sure.</span></p>
+          <p class="fact"><span class="fact__icon fact__icon--warn" aria-hidden="true">!</span>
+            <span><b>Normal chats aren't end-to-end.</b> The server holds the key for normal chats, so it could read them while it's running. That's what lets @ai, search and backups work. Use a secret chat for anything private.</span></p>
+          <p class="fact"><span class="fact__icon fact__icon--warn" aria-hidden="true">!</span>
+            <span><b>@ai uses an outside service.</b> When someone asks @ai, the chat's recent messages, photos, voice notes, files and shared locations are sent to the AI service (Groq) so it can answer. Weather and place lookups go to Open-Meteo.</span></p>
+          <p class="fact"><span class="fact__icon fact__icon--ok" aria-hidden="true">✓</span>
+            <span><b>Calls go device to device.</b> Voice and video travel directly between the two browsers, encrypted (WebRTC). The server only helps them find each other and isn't in the call.</span></p>
+          <p class="fact"><span class="fact__icon fact__icon--warn" aria-hidden="true">!</span>
+            <span><b>Pictures and GIFs use outside services.</b> /imagine sends your description to an image service (Pollinations or Hugging Face). GIF search goes to GIPHY.</span></p>
+          <p class="fact"><span class="fact__icon fact__icon--ok" aria-hidden="true">✓</span>
+            <span><b>Location only when you share it.</b> UhlWave never tracks you. Your location is sent only when you tap the pin button, and everyone in that chat can see it.</span></p>
+        </div>
+
+        <h3 class="set-heading">Security</h3>
+        <div class="set-card">
+          <p class="set-label">Log out of all other devices</p>
+          <p class="set-desc">Signs out every other browser and phone using your account. Use this if you think someone else is signed in.</p>
+          <button id="logout-everywhere" class="btn btn--quiet">Log out other devices</button>
+
+          <div class="danger-zone">
+            <p class="set-label set-label--danger">Delete account</p>
+            <p class="set-desc">Deletes your account and every message you've sent. This can't be undone.</p>
+            <button id="delete-start" class="btn btn--danger">Delete my account…</button>
+            <form id="delete-form" class="hidden">
+              <label class="field" for="delete-confirm"><span class="field__label">Type <span id="delete-name"></span> to confirm</span></label>
+              <div class="inline-form">
+                <input id="delete-confirm" class="input" autocomplete="off">
+                <button class="btn btn--danger-solid">Delete</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <p id="settings-status" class="toast" role="status" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <!-- ===== Incoming call (calls.js) ===== -->
+  <div id="incoming" class="incoming hidden" role="alertdialog" aria-labelledby="incoming-name" aria-describedby="incoming-kind">
+    <div id="incoming-avatar"></div>
+    <div class="incoming__text">
+      <p id="incoming-name" class="incoming__name"></p>
+      <p id="incoming-kind" class="incoming__kind"></p>
+    </div>
+    <button id="incoming-decline" class="round-btn round-btn--end" aria-label="Decline">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.996.996 0 0 1 0-1.41C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28a11.27 11.27 0 0 0-2.67-1.85.996.996 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+    </button>
+    <button id="incoming-accept" class="round-btn round-btn--accept" aria-label="Accept">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57a1.02 1.02 0 0 0-1.02.24l-2.2 2.2a15.05 15.05 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/></svg>
+    </button>
+  </div>
+
+  <!-- ===== Call screen (calls.js) ===== -->
+  <div id="call" class="call hidden" role="dialog" aria-modal="true" aria-labelledby="call-name">
+    <video id="call-remote" class="call__remote" autoplay playsinline></video>
+    <audio id="call-remote-audio" autoplay></audio>
+    <div class="call__who">
+      <div id="call-avatar"></div>
+      <p id="call-name" class="call__name"></p>
+      <p id="call-status" class="call__status" aria-live="polite"></p>
+    </div>
+    <video id="call-local" class="call__local hidden" autoplay playsinline muted></video>
+    <div class="call__controls">
+      <button id="call-mute" class="round-btn round-btn--soft" aria-pressed="false" aria-label="Mute microphone" title="Mute">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10a7 7 0 0 1-14 0"/><path d="M12 17v5"/></svg>
+      </button>
+      <button id="call-camera" class="round-btn round-btn--soft" aria-pressed="false" aria-label="Turn camera off" title="Camera">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m23 7-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+      </button>
+      <button id="call-hangup" class="round-btn round-btn--end" aria-label="End call" title="End call">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.996.996 0 0 1 0-1.41C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28a11.27 11.27 0 0 0-2.67-1.85.996.996 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Right-click / long-press menu on a message (interact.js) -->
+  <div id="ctx-menu" class="menu ctx-menu hidden" role="menu"></div>
+
+  <!-- Short confirmations ("Chat archived", "Link copied") -->
+  <p id="app-toast" class="toast toast--app" role="status" aria-live="polite"></p>
+
+  <!-- ===== Pop-up window for "New group" and "Group info" (groups.js fills it in) ===== -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div id="modal-backdrop" class="backdrop"></div>
+    <div class="modal__panel">
+      <header class="modal__head">
+        <h2 id="modal-title" class="modal__title"></h2>
+        <button id="close-modal" class="close-btn" aria-label="Close">&times;</button>
+      </header>
+      <div id="modal-body" class="modal__body"></div>
+      <p id="modal-error" class="modal__error" role="alert"></p>
+    </div>
+  </div>
+
+  <script src="/static/vendor/leaflet/leaflet.js"></script>
   <script src="/static/chat.js"></script>
+  <script src="/static/groups.js"></script>
+  <script src="/static/settings.js"></script>
+  <script src="/static/extras.js"></script>
+  <script src="/static/picker.js"></script>
+  <script src="/static/location.js"></script>
+  <script src="/static/calls.js"></script>
+  <script src="/static/appearance.js"></script>
+  <script src="/static/e2ee.js"></script>
+  <script src="/static/polls.js"></script>
+  <script src="/static/interact.js"></script>
 </body>
 </html>

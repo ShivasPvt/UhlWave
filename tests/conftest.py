@@ -1,3 +1,4 @@
+import itertools
 import os
 import sys
 import tempfile
@@ -7,6 +8,7 @@ from pathlib import Path
 _tmp = tempfile.mkdtemp()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
 os.environ["LLM_API_KEY"] = ""
+os.environ["MESSAGE_KEY"] = "dGVzdC1rZXktZm9yLXVobHdhdmUtdGVzdHMtMzJieXQ="  # fixed 32-byte test key
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest  # noqa: E402
@@ -21,14 +23,14 @@ def client():
         yield c
 
 
+_user_numbers = itertools.count(1)
+
+
 @pytest.fixture
 def make_user(client):
     """Register a user and return the Cookie header that logs in as them."""
-    counter = {"n": 0}
-
     def _make(prefix: str) -> dict:
-        counter["n"] += 1
-        username = f"{prefix}{os.getpid()}x{counter['n']}x{id(counter) % 10000}"
+        username = f"{prefix}{next(_user_numbers)}"  # unique across the whole test run
         r = client.post("/api/auth/register", json={"username": username, "password": "secret123"})
         assert r.status_code == 201, r.text
         token = r.cookies["access_token"]

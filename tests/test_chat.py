@@ -187,6 +187,16 @@ def test_ai_joins_when_mentioned(client, make_user):
         assert contents[:2] == ["plain message", "hey @AI explain joins"]
 
 
+def test_bot_request_body():
+    from app.bot import build_payload
+
+    history = [{"sender_is_bot": False, "sender_username": "riya", "content": "hi"}]
+    body = build_payload(history, model="openai/gpt-oss-20b")
+    assert body["model"] == "openai/gpt-oss-20b" and body["reasoning_effort"] == "low"
+    assert body["messages"][-1] == {"role": "user", "content": "riya: hi"}
+    assert "reasoning_effort" not in build_payload(history, model="gemini-x")  # only for gpt-oss models
+
+
 def test_bot_prompt_includes_usernames():
     from app.bot import build_messages
 

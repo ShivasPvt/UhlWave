@@ -2,7 +2,7 @@
 # Fill in DATABASE_URL and LLM_API_KEY in the Render dashboard afterwards.
 services:
   - type: web
-    name: valley-chat
+    name: uhlwave
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
@@ -19,7 +19,9 @@ services:
         sync: false
       - key: LLM_API_KEY
         sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
       - key: LLM_BASE_URL
         value: https://api.groq.com/openai/v1
       - key: LLM_MODEL
-        value: llama-3.1-8b-instant
+        value: openai/gpt-oss-20b

@@ -48,6 +48,14 @@ class ConnectionManager:
         for user_id in set(user_ids):
             await self.send_to_user(user_id, payload)
 
+    async def close_user(self, user_id: int, code: int = 4401, reason: str = "Logged out") -> None:
+        """Close every open socket of this user (e.g. after "Log out of all devices")."""
+        for ws in list(self.active.get(user_id, ())):
+            try:
+                await ws.close(code=code, reason=reason)
+            except Exception:
+                pass
+
     async def broadcast(self, payload: dict[str, Any], exclude: int | None = None) -> None:
         await self.send_to_users([uid for uid in self.active if uid != exclude], payload)
 

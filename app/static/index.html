@@ -3,66 +3,98 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Valley · Log in</title>
+  <title>UhlWave · Log in</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="/static/theme.js"></script>
-  <style type="text/tailwindcss">
-    .demo-bubble { @apply max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] leading-snug; }
-    .field { @apply w-full rounded-xl border border-pine/20 bg-white px-4 py-3 text-ink outline-none transition focus:border-pine focus:ring-4 focus:ring-marigold/30; }
-  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body class="min-h-screen bg-mist font-body text-ink antialiased">
-  <main class="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
+<body>
+  <main class="auth">
 
-    <!-- Left: what the product is, shown rather than told -->
-    <section class="relative flex flex-col justify-between overflow-hidden bg-pine px-8 py-10 text-mist lg:px-14 lg:py-14">
-      <h1 class="font-display text-6xl font-bold leading-none tracking-tight lg:text-8xl">Valley</h1>
-
-      <div class="mt-10 hidden max-w-md space-y-3 lg:block" aria-hidden="true">
-        <p class="demo-bubble bg-pine-600">anyone at the library? need the DBMS notes</p>
-        <p class="demo-bubble ml-auto bg-glacier text-ink">2nd floor, south wing. come over</p>
-        <p class="demo-bubble bg-pine-600">@ai what's normalisation in one line?</p>
-        <p class="demo-bubble border-2 border-marigold bg-marigold-soft text-marigold-deep">
-          Splitting tables so every fact is stored once, which stops update errors.
-        </p>
+    <!-- Left: the river and what the app does -->
+    <section class="auth__hero">
+      <div>
+        <div class="auth__brand">
+          <svg class="wave-mark" viewBox="0 0 30 18" aria-hidden="true"><path d="M2 12C7 2 11 2 15 9s8 7 13-3"/></svg>
+        </div>
+        <h1 class="auth__wordmark">UhlWave</h1>
+        <p class="auth__tagline">Message anyone in Kamand, instantly. Mention @ai to bring in the assistant.</p>
       </div>
 
-      <p class="mt-6 max-w-sm text-lg text-glacier lg:mt-0">
-        Message anyone on campus in real time. Mention @ai in any chat to bring the assistant in.
-      </p>
+      <div class="demo" aria-hidden="true">
+        <p class="bubble bubble--theirs">anyone at the library? need the DBMS notes</p>
+        <p class="bubble bubble--mine">2nd floor, south wing. come over</p>
+        <p class="bubble bubble--theirs">@ai what's normalisation in one line?</p>
+        <p class="bubble bubble--ai">Splitting tables so every fact is stored once, which stops update errors.</p>
+      </div>
+
+      <div class="waves" aria-hidden="true">
+        <svg viewBox="0 0 2880 190" preserveAspectRatio="none">
+          <path class="w1" d="M0 70C240 20 480 120 720 70S1200 20 1440 70 1920 120 2160 70 2640 20 2880 70V190H0Z"/>
+          <path class="w2" d="M0 110C240 150 480 70 720 110S1200 150 1440 110 1920 70 2160 110 2640 150 2880 110V190H0Z"/>
+          <path class="w3" d="M0 150C240 120 480 180 720 150S1200 120 1440 150 1920 180 2160 150 2640 120 2880 150V190H0Z"/>
+        </svg>
+      </div>
     </section>
 
-    <!-- Right: the form -->
-    <section class="flex items-center justify-center px-6 py-12">
-      <form id="auth-form" class="w-full max-w-sm" novalidate>
-        <h2 id="form-title" class="font-display text-3xl font-bold">Log in</h2>
-        <p id="form-hint" class="mt-2 text-slate">Welcome back.</p>
+    <!-- Right: sign in -->
+    <section class="auth__side">
+      <div class="auth-card">
+        <h2 id="form-title" class="auth-card__title">Log in</h2>
+        <p id="form-hint" class="auth-card__hint">Welcome back.</p>
 
-        <label class="mt-8 block text-sm font-bold" for="username">Username</label>
-        <input id="username" name="username" class="field mt-2" autocomplete="username" required
-               minlength="3" maxlength="30" pattern="[A-Za-z0-9_]+">
+        <!-- auth.js shows this when GOOGLE_CLIENT_ID is set on the server -->
+        <div id="google-area" class="google-area hidden">
+          <div id="google-btn" class="google-btn"></div>
+          <p class="divider">or use a username</p>
+        </div>
+        <p id="google-setup-note" class="setup-note hidden"></p>
 
-        <label class="mt-5 block text-sm font-bold" for="password">Password</label>
-        <input id="password" name="password" type="password" class="field mt-2"
-               autocomplete="current-password" required minlength="6">
+        <form id="auth-form" novalidate>
+          <label class="field">
+            <span class="field__label">Username</span>
+            <input id="username" name="username" class="input" autocomplete="username" required
+                   minlength="3" maxlength="30" pattern="[A-Za-z0-9_]+">
+          </label>
+          <div class="field">
+            <label class="field__label" for="password">Password</label>
+            <div class="pw-wrap">
+              <input id="password" name="password" type="password" class="input"
+                     autocomplete="current-password" required minlength="6" aria-describedby="pw-meter-label">
+              <button id="pw-toggle" type="button" class="pw-toggle" aria-label="Show password" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
 
-        <p id="form-error" class="mt-4 min-h-[1.5rem] text-sm text-red-700" role="alert"></p>
+          <!-- Only when creating an account: live password strength -->
+          <div id="pw-help" class="pw-help hidden">
+            <div class="pw-meter" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+            <p id="pw-meter-label" class="pw-meter__label" aria-live="polite">Type a password</p>
+            <ul class="pw-rules" aria-label="Password rules">
+              <li data-rule="length">At least 8 characters</li>
+              <li data-rule="mix">Letters and numbers</li>
+              <li data-rule="name">Doesn't contain your username</li>
+              <li data-rule="common">Not an easy-to-guess password</li>
+            </ul>
+            <p id="pw-tips" class="pw-tips"></p>
+            <button id="pw-suggest" type="button" class="link-btn pw-suggest">Suggest a strong password</button>
+          </div>
+          <label id="confirm-wrap" class="field hidden">
+            <span class="field__label">Confirm password</span>
+            <input id="confirm" type="password" class="input" autocomplete="new-password">
+            <span id="confirm-note" class="field__hint" aria-live="polite"></span>
+          </label>
+          <p id="form-error" class="auth-card__error" role="alert"></p>
+          <button id="submit-btn" type="submit" class="btn btn--primary btn--block">Log in</button>
+        </form>
 
-        <button id="submit-btn" type="submit"
-                class="mt-2 w-full rounded-xl bg-pine px-4 py-3 font-bold text-mist transition hover:bg-pine-600 focus:outline-none focus-visible:ring-4 focus-visible:ring-marigold/50 disabled:opacity-60">
-          Log in
-        </button>
-
-        <p class="mt-6 text-center text-slate">
+        <p class="auth-card__switch">
           <span id="switch-text">New here?</span>
-          <button id="switch-mode" type="button" class="font-bold text-pine underline decoration-marigold decoration-2 underline-offset-4">
-            Create an account
-          </button>
+          <button id="switch-mode" type="button" class="link-btn">Create an account</button>
         </p>
-      </form>
+      </div>
     </section>
   </main>
 
