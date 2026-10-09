@@ -155,14 +155,21 @@ The tests use a throwaway database and cover sign-up and login, real-time delive
 users over WebSockets, persistence, access control (outsiders can't read or post), typing,
 pagination, bad input, and the AI flow.
 
-## Deploy (Render + Supabase, both free)
+## Deploy on Render (free)
 
-1. **Database:** create a Supabase project. Go to *Connect* and copy the **Session pooler**
-   connection string (the direct one is IPv6-only and Render can't reach it).
-2. **App:** push this repo to GitHub. On Render choose *New → Blueprint* and pick the repo;
-   `render.yaml` sets everything up. Fill in `DATABASE_URL` and `LLM_API_KEY` when asked.
-3. Open the `.onrender.com` URL. Free Render services sleep after inactivity, so open the link a
-   minute before demoing.
+`render.yaml` is a Render Blueprint: it creates the web app **and** a Postgres database, and
+generates `JWT_SECRET` and `MESSAGE_KEY` itself.
+
+1. Push this repo to GitHub.
+2. On [render.com](https://render.com) sign in with GitHub, choose *New → Blueprint*, pick the
+   repo (give Render access to it if it's private) and click *Apply*.
+3. Paste `LLM_API_KEY`, `GIPHY_API_KEY` and `HF_TOKEN` when asked (any can be left blank).
+4. When the deploy is live, open the `https://….onrender.com` URL.
+
+Free plan limits: the app sleeps after 15 minutes without visitors (open the link a minute
+before demoing), and Render deletes a free database 30 days after creating it. Every push to
+`main` redeploys automatically. For Google sign-in, add the `onrender.com` URL to your OAuth
+client's *Authorized JavaScript origins* and set `GOOGLE_CLIENT_ID`.
 
 ## Environment variables
 

@@ -24,6 +24,7 @@ who controls the running server (it holds the key). For that, use secret chats,
 which are end-to-end encrypted in the browser (see static/e2ee.js).
 """
 import base64
+import hashlib
 import logging
 import os
 import secrets
@@ -53,11 +54,15 @@ def _load_key() -> bytes:
             log.error("Couldn't save the encryption key; set MESSAGE_KEY in .env or messages will be unreadable after a restart.")
     try:
         key = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
-    except ValueError as error:
-        raise RuntimeError("MESSAGE_KEY must be 32 random bytes, base64-encoded.") from error
-    if len(key) != 32:
-        raise RuntimeError("MESSAGE_KEY must be 32 random bytes, base64-encoded (44 characters).")
-    return key
+    except ValueError:
+        key = b""
+    if len(key) == 32:
+        return key
+    # Not exactly 32 base64 bytes (e.g. a host-generated random string): any long
+    # random value still works, stretched to a 32-byte key with SHA-256.
+    if len(raw) >= 32:
+        return hashlib.sha256(raw.encode()).digest()
+    raise RuntimeError("MESSAGE_KEY must be 32 random bytes, base64-encoded (44 characters).")
 
 
 _aes = AESGCM(_load_key())

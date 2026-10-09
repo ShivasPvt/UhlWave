@@ -1,27 +1,52 @@
-# One-click deploy on Render: New > Blueprint > pick this repo.
-# Fill in DATABASE_URL and LLM_API_KEY in the Render dashboard afterwards.
+# Deploy on Render: New > Blueprint > pick this repo > Apply.
+# Render creates the web app AND a Postgres database, and makes the login
+# secret and the message encryption key for you. You only paste your own API
+# keys (Groq, GIPHY, Hugging Face) when Render asks for them; all are optional.
+#
+# Free plan notes: the app sleeps after 15 minutes without visitors (the first
+# visit after that takes ~1 minute to wake it), and Render's free Postgres
+# database is deleted 30 days after it is created unless you upgrade it.
 services:
   - type: web
     name: uhlwave
     runtime: python
     plan: free
+    region: singapore
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.7"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: uhlwave-db
+          property: connectionString
+      # Both are random 256-bit values made by Render. MESSAGE_KEY encrypts every
+      # stored message: don't change or delete it, or old messages become unreadable.
       - key: JWT_SECRET
+        generateValue: true
+      - key: MESSAGE_KEY
         generateValue: true
       - key: COOKIE_SECURE
         value: "true"
-      - key: DATABASE_URL
-        sync: false
-      - key: LLM_API_KEY
-        sync: false
-      - key: GOOGLE_CLIENT_ID
-        sync: false
       - key: LLM_BASE_URL
         value: https://api.groq.com/openai/v1
       - key: LLM_MODEL
         value: openai/gpt-oss-20b
+      # Render asks for these when you apply the blueprint. Leave any blank to switch that feature off.
+      - key: LLM_API_KEY
+        sync: false
+      - key: GIPHY_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+
+databases:
+  - name: uhlwave-db
+    plan: free
+    region: singapore
+    databaseName: uhlwave
+    user: uhlwave
