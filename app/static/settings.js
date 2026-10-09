@@ -192,18 +192,23 @@ $("delete-form").addEventListener("submit", async (event) => {
 
 // ---------- profile: photo and About ----------
 
-$("avatar-upload").addEventListener("click", () => $("avatar-input").click());
-$("avatar-input").addEventListener("change", async () => {
+// "Change photo" offers: choose from device, or take one with the camera. Either
+// way the photo goes through the editor, so it's cropped square to fit the circle.
+const profilePhotoJob = {
+  title: "Profile photo",
+  shape: "circle",
+  onSave: async (blob) => {
+    await PhotoEditor.upload("/api/settings/avatar", blob);
+    settings = await api("/api/settings");
+    renderSettings();
+    flash("Profile photo updated");
+  },
+};
+$("avatar-upload").addEventListener("click", () => PhotoEditor.choose(profilePhotoJob));
+$("avatar-input").addEventListener("change", () => {
   const file = $("avatar-input").files[0];
   $("avatar-input").value = "";
-  if (!file) return;
-  if (file.size > 3 * 1024 * 1024) return flash("Profile photos can be up to 3 MB.");
-  const res = await fetch("/api/settings/avatar", { method: "POST", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return flash(typeof data.detail === "string" ? data.detail : "Couldn't upload that photo.");
-  settings = await api("/api/settings");
-  renderSettings();
-  flash("Profile photo updated");
+  if (file) PhotoEditor.fromFile(file, profilePhotoJob);
 });
 
 $("avatar-remove").addEventListener("click", async () => {

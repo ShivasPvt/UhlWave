@@ -785,9 +785,39 @@ img { display: block; }
 .avatar--lg { width: 64px; height: 64px; font-size: 22px; }
 .call .avatar--xl { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.06), 0 0 0 22px rgba(255, 255, 255, 0.03); }
 
-/* Profile photos inside avatars */
+/* Profile photos inside avatars. The picture is pinned to the frame (absolute,
+   inset 0) so a wide or tall photo is cropped to fit instead of stretching it. */
 .avatar--photo { background: var(--night-2); overflow: visible; }
-.avatar--photo img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.avatar--photo img { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; object-fit: cover; object-position: center; border-radius: inherit; }
+.avatar--photo .avatar__dot { z-index: 1; }
+
+/* Photo editor: choose / take a photo, then drag and zoom it into the frame */
+.photo-source { display: grid; gap: 8px; }
+.photo-source .choice { display: flex; align-items: center; gap: 12px; padding: 14px; }
+.photo-source .choice__icon { font-size: 22px; line-height: 1; }
+.photo-source .choice small { display: block; font-weight: 400; color: var(--muted); }
+.crop { display: grid; justify-items: center; gap: 14px; }
+.crop__stage {
+  position: relative; width: min(300px, 76vw); aspect-ratio: 1; overflow: hidden;
+  border-radius: var(--r-md); background: #0b1620; touch-action: none; cursor: grab; user-select: none;
+}
+.crop__stage:active { cursor: grabbing; }
+.crop__stage canvas, .crop__stage video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.crop__stage video { object-fit: cover; transform: scaleX(-1); }
+.crop__frame {
+  position: absolute; inset: 0; pointer-events: none; border-radius: 50%;
+  box-shadow: 0 0 0 999px rgba(5, 12, 18, 0.62); outline: 2px solid rgba(255, 255, 255, 0.85); outline-offset: -2px;
+}
+.crop__frame--square { border-radius: 32%; }
+.crop__tools { display: flex; align-items: center; gap: 10px; width: min(300px, 76vw); }
+.crop__tools input[type=range] { flex: 1; accent-color: var(--uhl); }
+.crop__zoom { flex: none; width: 32px; height: 32px; border-radius: 50%; font: 700 18px/1 var(--font-display); color: var(--ink, #14212b); box-shadow: inset 0 0 0 1.5px var(--line); }
+.crop__zoom:hover { background: var(--uhl-soft); }
+.crop__hint { margin: 0; font-size: 12px; color: var(--muted); text-align: center; }
+.crop__actions { display: flex; gap: 8px; width: min(300px, 76vw); }
+.crop__actions .btn { flex: 1; }
+.crop__flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 0.25s ease-out; }
+.crop__flash--on { opacity: 0.9; transition: none; }
 
 /* App-wide toast */
 .toast--app { position: fixed; z-index: 80; bottom: 28px; max-width: calc(100% - 32px); white-space: normal; text-align: center; }

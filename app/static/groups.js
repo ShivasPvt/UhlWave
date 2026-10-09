@@ -3,7 +3,19 @@
 
 let modalLastFocus = null;
 
+// Something to run when the current pop-up goes away (e.g. turn the camera off).
+let modalCleanup = null;
+function onModalClose(fn) {
+  modalCleanup = fn;
+}
+function runModalCleanup() {
+  const fn = modalCleanup;
+  modalCleanup = null;
+  try { fn?.(); } catch (error) { console.warn(error); }
+}
+
 function openModal(title, ...content) {
+  runModalCleanup();
   modalLastFocus = document.activeElement;
   $("modal-title").textContent = title;
   $("modal-body").replaceChildren(...content);
@@ -13,6 +25,7 @@ function openModal(title, ...content) {
 }
 
 function closeModal() {
+  runModalCleanup();
   $("modal").classList.add("hidden");
   $("modal-body").replaceChildren();
   modalLastFocus?.focus();
@@ -159,16 +172,20 @@ function openGroupInfo() {
   fileInput.type = "file";
   fileInput.accept = "image/png,image/jpeg,image/webp,image/gif";
   fileInput.className = "hidden";
-  change.addEventListener("click", () => fileInput.click());
-  fileInput.addEventListener("change", async () => {
+  const groupPhotoJob = {
+    title: "Group photo",
+    shape: "square",
+    onSave: async (blob) => {
+      await PhotoEditor.upload(`/api/groups/${group.id}/photo`, blob);
+      await loadConversations();
+      setTimeout(openGroupInfo);  // after the editor closes, show the group again
+    },
+  };
+  change.addEventListener("click", () => PhotoEditor.choose(groupPhotoJob));
+  fileInput.addEventListener("change", () => {
     const file = fileInput.files[0];
-    if (!file) return;
-    if (file.size > 3 * 1024 * 1024) return modalError("Group photos can be up to 3 MB.");
-    const res = await fetch(`/api/groups/${group.id}/photo`, { method: "POST", body: file, headers: { "Content-Type": file.type } });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) return modalError(typeof data.detail === "string" ? data.detail : "Couldn't upload that photo.");
-    await loadConversations();
-    openGroupInfo();
+    fileInput.value = "";
+    if (file) PhotoEditor.fromFile(file, groupPhotoJob);
   });
   photoButtons.append(change, fileInput);
   if (group.avatar_url) {
