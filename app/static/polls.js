@@ -61,23 +61,86 @@ function openNewPoll() {
   openModal("New poll", form);
 }
 
-async function castVote(message, optionId) {
-  const poll = message.poll;
-  const mine = poll.options.filter((o) => o.voters.includes(state.me.id)).map((o) => o.id);
+// ---------- voting ----------
+// Your tap shows straight away (we don't wait for the server), votes for one poll are
+// sent one at a time so quick taps can't trip over each other, and the server's reply
+// redraws the poll even if the live connection is slow or has dropped.
+const pollLatest = new Map();   // poll id -> newest message we've seen (from the server)
+const pollWanted = new Map();   // poll id -> option ids you picked that the server hasn't confirmed yet
+const pollBusy = new Set();     // poll ids with a vote on its way
+
+function myVotes(poll) {
+  if (pollWanted.has(poll.id)) return pollWanted.get(poll.id);
+  return poll.options.filter((o) => o.voters.includes(state.me.id)).map((o) => o.id);
+}
+
+// The poll as it should look right now: the server's counts, with your own
+// not-yet-confirmed choice swapped in.
+function pollAsShown(poll) {
+  if (!pollWanted.has(poll.id)) return poll;
+  const mine = new Set(pollWanted.get(poll.id));
+  const me = state.me.id;
+  const options = poll.options.map((o) => {
+    const others = o.voters.filter((id) => id !== me);
+    return { ...o, voters: mine.has(o.id) ? [...others, me] : others };
+  });
+  const voters = new Set(options.flatMap((o) => o.voters));
+  return { ...poll, options, voter_count: voters.size };
+}
+
+function redrawPoll(message) {
+  const row = document.querySelector(`[data-message-id="${message.id}"]`);
+  if (row && message.conversation_id === state.activeId) row.replaceWith(renderMessage(message));
+}
+
+function castVote(message, optionId) {
+  const latest = pollLatest.get(message.poll.id) || message;
+  const poll = latest.poll;
+  if (poll.closed) return;
+  const mine = myVotes(poll);
   let next;
   if (poll.multiple) next = mine.includes(optionId) ? mine.filter((id) => id !== optionId) : [...mine, optionId];
-  else next = mine.length === 1 && mine[0] === optionId ? [] : [optionId];
+  else next = mine.length === 1 && mine[0] === optionId ? [] : [optionId];  // tap your pick again to take it back
+  pollWanted.set(poll.id, next);
+  if (navigator.vibrate) navigator.vibrate(8);
+  redrawPoll(latest);
+  sendVote(latest);
+}
+
+async function sendVote(message) {
+  const pollId = message.poll.id;
+  if (pollBusy.has(pollId)) return;  // the vote on its way will pick up the newest choice when it lands
+  pollBusy.add(pollId);
   try {
-    await api(`/api/polls/${poll.id}/vote`, { method: "POST", body: JSON.stringify({ option_ids: next }) });
+    for (;;) {
+      const wanted = pollWanted.get(pollId);
+      const updated = await api(`/api/polls/${pollId}/vote`, { method: "POST", body: JSON.stringify({ option_ids: wanted }) });
+      if (pollWanted.get(pollId) === wanted) {
+        pollWanted.delete(pollId);   // the server now has exactly what you picked
+        onMessageUpdated(updated);
+        break;
+      }
+      // You tapped again while that was sending: send the newer choice too.
+    }
   } catch (error) {
-    showError(error.message);
+    pollWanted.delete(pollId);       // go back to what the server has
+    showError(error.message || "Couldn't save your vote.");
+    try {
+      onMessageUpdated(await api(`/api/polls/${pollId}`));  // e.g. it ended and we missed that
+    } catch {
+      const latest = pollLatest.get(pollId);
+      if (latest) redrawPoll(latest);
+    }
+  } finally {
+    pollBusy.delete(pollId);
   }
 }
 
 function showVoters(message) {
+  message = pollLatest.get(message.poll.id) || message;
   const conversation = findConversation(message.conversation_id);
   const name = (id) => (id === state.me.id ? "You" : conversation?.members.find((m) => m.id === id)?.username || "Someone who left");
-  const parts = message.poll.options.map((o) => {
+  const parts = pollAsShown(message.poll).options.map((o) => {
     const box = el("div", "voters");
     box.append(el("p", "set-label", `${o.text} · ${o.voters.length}`));
     box.append(el("p", "small-note", o.voters.length ? o.voters.map(name).join(", ") : "No votes yet"));
@@ -87,7 +150,8 @@ function showVoters(message) {
 }
 
 function renderPoll(message, mine, kind) {
-  const poll = message.poll;
+  pollLatest.set(message.poll.id, message);
+  const poll = pollAsShown(message.poll);
   const card = el("div", `bubble ${kind} poll${poll.closed ? " poll--closed" : ""}`);
   card.append(el("p", "poll__question", message.content));
   card.append(el("p", "poll__hint", poll.closed ? "Poll ended · final results" : poll.multiple ? "Pick one or more" : "Pick one"));
@@ -123,11 +187,30 @@ function renderPoll(message, mine, kind) {
   });
   footer.append(who);
   if (mine && !poll.closed) {
+    // Two taps to end, so it can't happen by accident (it sits right next to the vote count).
     const end = el("button", "poll__link", "End poll");
     end.type = "button";
+    let armed = null;
     end.addEventListener("click", async (event) => {
       event.stopPropagation();
-      await api(`/api/polls/${poll.id}/close`, { method: "POST" }).catch((e) => showError(e.message));
+      if (!armed) {
+        end.textContent = "Tap again to end";
+        end.classList.add("poll__link--warn");
+        armed = setTimeout(() => {
+          armed = null;
+          end.textContent = "End poll";
+          end.classList.remove("poll__link--warn");
+        }, 3000);
+        return;
+      }
+      clearTimeout(armed);
+      end.disabled = true;
+      try {
+        onMessageUpdated(await api(`/api/polls/${poll.id}/close`, { method: "POST" }));
+      } catch (error) {
+        end.disabled = false;
+        showError(error.message);
+      }
     });
     footer.append(end);
   }

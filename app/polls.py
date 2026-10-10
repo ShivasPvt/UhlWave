@@ -3,6 +3,7 @@
   POST /api/conversations/{id}/polls   {"question": "...", "options": ["A", "B"], "multiple": false}
   POST /api/polls/{id}/vote            {"option_ids": [12]}   (an empty list takes your vote back)
   POST /api/polls/{id}/close           end the poll (only the person who made it)
+  GET  /api/polls/{id}                 the poll as it is now
 
 Every vote is pushed to everyone in the chat as a "message_updated" event, so
 the bars move live. Polls aren't allowed in secret chats (the server would have
@@ -10,6 +11,7 @@ to read the options to count votes).
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, delete, select
 
 from .auth import get_current_user
@@ -75,6 +77,13 @@ def _poll_for_member(session: Session, poll_id: int, me: User) -> tuple[Poll, Me
     return poll, message
 
 
+@router.get("/polls/{poll_id}")
+def get_poll(poll_id: int, me: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    """The poll's message as it is now (the app re-checks after a vote is refused)."""
+    _, message = _poll_for_member(session, poll_id, me)
+    return load_message_out(session, message.id)
+
+
 @router.post("/polls/{poll_id}/vote")
 async def vote(poll_id: int, body: VoteBody, me: User = Depends(get_current_user), session: Session = Depends(get_session)):
     poll, message = _poll_for_member(session, poll_id, me)
@@ -89,10 +98,19 @@ async def vote(poll_id: int, body: VoteBody, me: User = Depends(get_current_user
     valid = set(session.exec(select(PollOption.id).where(PollOption.poll_id == poll.id)).all())
     if any(o not in valid for o in wanted):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "That option isn't in this poll.")
-    session.execute(delete(PollVote).where(col(PollVote.poll_id) == poll.id, col(PollVote.user_id) == me.id))
-    for option_id in wanted:
-        session.add(PollVote(poll_id=poll.id, option_id=option_id, user_id=me.id))
-    session.commit()
+    # Replace your old votes with the new ones. Two of your votes landing at the same
+    # moment (double tap, two tabs) can clash on the unique key; the later one wins.
+    for attempt in range(2):
+        try:
+            session.execute(delete(PollVote).where(col(PollVote.poll_id) == poll.id, col(PollVote.user_id) == me.id))
+            for option_id in wanted:
+                session.add(PollVote(poll_id=poll.id, option_id=option_id, user_id=me.id))
+            session.commit()
+            break
+        except IntegrityError:
+            session.rollback()
+            if attempt:
+                raise HTTPException(status.HTTP_409_CONFLICT, "Your vote clashed with another one. Try again.")
     return await _push(session, message.id)
 
 

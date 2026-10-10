@@ -1071,6 +1071,10 @@ kbd { display: inline-block; min-width: 24px; padding: 2px 7px; border-radius: 6
 .poll__footer { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
 .poll__link { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; opacity: 0.85; }
 .poll__link:hover { opacity: 1; }
+.poll__link--warn { opacity: 1; color: #ffd6dc; text-decoration-thickness: 2px; animation: poll-warn 0.35s var(--ease-out, ease-out); }
+.bubble--theirs .poll__link--warn, .bubble--ai .poll__link--warn { color: #c42847; }
+@keyframes poll-warn { 0%, 100% { transform: none; } 30% { transform: translateX(-2px); } 60% { transform: translateX(2px); } }
+@media (prefers-reduced-motion: reduce) { .poll__link--warn { animation: none; } }
 .poll-edit { display: grid; gap: 8px; }
 .poll-edit__row { display: flex; gap: 6px; align-items: center; }
 .poll-edit__row .input { flex: 1; }

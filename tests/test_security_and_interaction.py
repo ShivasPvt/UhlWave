@@ -124,6 +124,11 @@ def test_polls(client, make_user):
     assert client.post(f"/api/polls/{poll['id']}/close", headers=b["headers"]).status_code == 403
     assert client.post(f"/api/polls/{poll['id']}/close", headers=a["headers"]).json()["poll"]["closed"] is True
     assert client.post(f"/api/polls/{poll['id']}/vote", json={"option_ids": [both]}, headers=c["headers"]).status_code == 400
+    # The app re-reads a poll after a refused vote, to show it ended.
+    fresh = client.get(f"/api/polls/{poll['id']}", headers=c["headers"]).json()
+    assert fresh["poll"]["closed"] is True and fresh["content"] == "When shall we go?"
+    outsider = make_user("poll_outsider")
+    assert client.get(f"/api/polls/{poll['id']}", headers=outsider["headers"]).status_code == 404
 
     multi = client.post(url, json={"question": "Bring?", "options": ["Tea", "Snacks"], "multiple": True}, headers=a["headers"]).json()["poll"]
     out = client.post(f"/api/polls/{multi['id']}/vote", json={"option_ids": [o["id"] for o in multi["options"]]}, headers=c["headers"]).json()
