@@ -23,6 +23,8 @@ function setMode(next) {
   document.getElementById("pw-help").classList.toggle("hidden", mode !== "register");
   document.getElementById("confirm-wrap").classList.toggle("hidden", mode !== "register");
   errorBox.textContent = "";
+  nameCheck.reset();
+  if (mode === "register" && form.username.value.trim()) nameCheck.run(form.username.value);
   checkPassword();
   renderGoogleButton();
 }
@@ -45,6 +47,13 @@ form.addEventListener("submit", async (e) => {
   if (mode === "register") {
     if (!/^[A-Za-z0-9_]{3,30}$/.test(username)) {
       errorBox.textContent = "Usernames are 3–30 letters, numbers or underscores.";
+      return;
+    }
+    const nameState = await nameCheck.result(username);
+    if (nameState && !nameState.available) {
+      errorBox.textContent = nameState.reason;
+      shake(document.getElementById("username-check"));
+      form.username.focus();
       return;
     }
     const check = checkPassword();
@@ -76,6 +85,7 @@ form.addEventListener("submit", async (e) => {
     }
     const data = await res.json().catch(() => ({}));
     errorBox.textContent = typeof data.detail === "string" ? data.detail : "Check your details and try again.";
+    if (mode === "register" && res.status === 409) nameCheck.run(username, true);
   } catch {
     errorBox.textContent = "Can't reach the server. Check your connection.";
   } finally {
@@ -260,3 +270,118 @@ document.getElementById("pw-suggest").addEventListener("click", () => {
   document.getElementById("pw-toggle").click(); // show it so they can note it down
   checkPassword();
 });
+
+
+// ---------- is this username free? ----------
+// Usernames are one per person and stored in lowercase ("Meera" and "meera" are
+// the same name). While you type on the sign-up form we ask the server, after a
+// short pause, and show the answer right under the box, with a few free
+// alternatives you can tap if it's taken.
+const nameCheck = (() => {
+  const input = document.getElementById("username");
+  const box = document.getElementById("username-check");
+  const note = document.getElementById("username-note");
+  const suggest = document.getElementById("username-suggest");
+  const cache = new Map();   // lowercase name -> server answer
+  let timer = null;
+  let latest = "";
+
+  function show(kind, text) {
+    box.classList.remove("hidden");
+    note.className = `field__hint${kind ? ` field__hint--${kind}` : ""}`;
+    note.textContent = text;
+    input.classList.toggle("input--ok", kind === "ok");
+    input.classList.toggle("input--bad", kind === "bad");
+    input.setAttribute("aria-invalid", String(kind === "bad"));
+  }
+
+  function showSuggestions(list) {
+    suggest.replaceChildren();
+    suggest.classList.toggle("hidden", !list?.length);
+    if (!list?.length) return;
+    suggest.append(document.createTextNode("Free:"));
+    for (const name of list) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = `@${name}`;
+      b.addEventListener("click", () => {
+        input.value = name;
+        run(name);
+        input.focus();
+      });
+      suggest.append(b);
+    }
+  }
+
+  function localProblem(name) {
+    if (name.length < 3) return "At least 3 characters.";
+    if (name.length > 30) return "At most 30 characters.";
+    if (!/^[a-z0-9_]+$/.test(name)) return "Only letters, numbers and underscores.";
+    return null;
+  }
+
+  async function ask(name, fresh = false) {
+    if (!fresh && cache.has(name)) return cache.get(name);
+    const res = await fetch(`/api/auth/username-available?username=${encodeURIComponent(name)}`);
+    if (!res.ok) throw new Error(res.status === 429 ? "rate" : "fail");
+    const data = await res.json();
+    cache.set(name, data);
+    return data;
+  }
+
+  function render(data, typed) {
+    if (data.available) {
+      show("ok", typed !== data.username ? `✓ Available. You'll be @${data.username} (usernames are lowercase)` : `✓ @${data.username} is available`);
+      showSuggestions([]);
+    } else {
+      show("bad", `✗ ${data.reason}`);
+      showSuggestions(data.suggestions);
+    }
+  }
+
+  function run(raw, fresh = false) {
+    clearTimeout(timer);
+    const typed = raw.trim();
+    const name = typed.toLowerCase();
+    latest = name;
+    if (mode !== "register") return reset();
+    if (!name) return reset();
+    const problem = localProblem(name);
+    if (problem) {
+      show("bad", problem);
+      showSuggestions([]);
+      return;
+    }
+    if (!fresh && cache.has(name)) return render(cache.get(name), typed);
+    show("busy", "Checking…");
+    timer = setTimeout(async () => {
+      try {
+        const data = await ask(name, fresh);
+        if (latest === name) render(data, typed);
+      } catch (error) {
+        if (latest === name) show("busy", error.message === "rate" ? "Checking paused for a moment…" : "Couldn't check right now; we'll check when you sign up.");
+      }
+    }, fresh ? 0 : 350);
+  }
+
+  function reset() {
+    clearTimeout(timer);
+    box.classList.add("hidden");
+    input.classList.remove("input--ok", "input--bad");
+    input.removeAttribute("aria-invalid");
+    showSuggestions([]);
+  }
+
+  // The answer for this exact name (asks the server if we don't know yet).
+  async function result(raw) {
+    const name = raw.trim().toLowerCase();
+    try {
+      return await ask(name);
+    } catch {
+      return null;  // the server will check again when the form is sent
+    }
+  }
+
+  input.addEventListener("input", () => run(input.value));
+  return { run, reset, result };
+})();

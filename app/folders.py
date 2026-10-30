@@ -23,8 +23,6 @@ inside locked chats load too. POST /api/locked/close removes it straight away.
 Without it, locked chats are left out of the chat list and search, and their
 messages and files can't be loaded.
 """
-import time
-from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -37,6 +35,7 @@ from .auth import ALGORITHM, get_current_user
 from .config import COOKIE_SECURE, JWT_SECRET
 from .db import get_session
 from .models import Category, ConversationMember, User
+from .security import clear_pin_failures, pin_wait_seconds, record_pin_failure
 
 router = APIRouter(prefix="/api", tags=["folders"])
 
@@ -45,23 +44,18 @@ UNLOCK_MINUTES = 15
 MAX_CATEGORIES = 10
 PIN_PATTERN = r"^\d{4,8}$"
 
-# Wrong PINs: after 5 in 5 minutes, stop checking for a while. Kept in memory.
-_pin_failures: dict[int, deque] = defaultdict(deque)
-MAX_PIN_TRIES = 5
-PIN_WINDOW_SECONDS = 300
-
+# Wrong PINs: after 5 in 5 minutes, stop checking for a while. Counted in the
+# database (app/security.py), so restarting the server doesn't reset the count.
 
 # ---- PIN helpers -----------------------------------------------------------------
 
-def _check_pin(user: User, pin: str | None) -> None:
+def _check_pin(session: Session, user: User, pin: str | None) -> None:
     if not user.lock_pin_hash:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Set a chat lock PIN in Settings first.")
-    failures = _pin_failures[user.id]
-    now = time.monotonic()
-    while failures and now - failures[0] > PIN_WINDOW_SECONDS:
-        failures.popleft()
-    if len(failures) >= MAX_PIN_TRIES:
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many wrong PINs. Try again in 5 minutes.")
+    wait = pin_wait_seconds(user)
+    if wait:
+        minutes = max(1, int(wait // 60) + 1)
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, f"Too many wrong PINs. Try again in {minutes} min.")
     ok = False
     if pin:
         try:
@@ -69,10 +63,14 @@ def _check_pin(user: User, pin: str | None) -> None:
         except ValueError:
             ok = False
     if not ok:
-        failures.append(now)
-        left = MAX_PIN_TRIES - len(failures)
+        left = record_pin_failure(user)
+        session.add(user)
+        session.commit()
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"Wrong PIN. {left} {'try' if left == 1 else 'tries'} left." if left else "Wrong PIN.")
-    failures.clear()
+    if user.pin_failures:
+        clear_pin_failures(user)
+        session.add(user)
+        session.commit()
 
 
 def unlock_token(user: User) -> str:
@@ -157,7 +155,7 @@ class PinBody(BaseModel):
 @router.post("/conversations/{conversation_id}/lock")
 def lock_chat(conversation_id: int, body: PinBody, response: Response, me: User = Depends(get_current_user), session: Session = Depends(get_session)):
     m = _my_membership(session, conversation_id, me)
-    _check_pin(me, body.pin)
+    _check_pin(session, me, body.pin)
     m.locked, m.archived = True, False  # a locked chat lives in the locked folder only
     session.add(m)
     session.commit()
@@ -169,7 +167,7 @@ def lock_chat(conversation_id: int, body: PinBody, response: Response, me: User 
 @router.post("/conversations/{conversation_id}/unlock")
 def unlock_chat(conversation_id: int, body: PinBody, me: User = Depends(get_current_user), session: Session = Depends(get_session)):
     m = _my_membership(session, conversation_id, me)
-    _check_pin(me, body.pin)
+    _check_pin(session, me, body.pin)
     m.locked = False
     session.add(m)
     session.commit()
@@ -191,7 +189,7 @@ class SetPinBody(BaseModel):
 @router.put("/locked/pin")
 def set_pin(body: SetPinBody, me: User = Depends(get_current_user), session: Session = Depends(get_session)):
     if me.lock_pin_hash:
-        _check_pin(me, body.current_pin)
+        _check_pin(session, me, body.current_pin)
     me.lock_pin_hash = bcrypt.hashpw(body.pin.encode(), bcrypt.gensalt()).decode()
     session.add(me)
     session.commit()
@@ -200,7 +198,7 @@ def set_pin(body: SetPinBody, me: User = Depends(get_current_user), session: Ses
 
 @router.delete("/locked/pin")
 def remove_pin(body: PinBody, me: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    _check_pin(me, body.pin)
+    _check_pin(session, me, body.pin)
     session.execute(
         update(ConversationMember).where(col(ConversationMember.user_id) == me.id).values(locked=False)
     )
@@ -211,8 +209,8 @@ def remove_pin(body: PinBody, me: User = Depends(get_current_user), session: Ses
 
 
 @router.post("/locked/open")
-def open_locked(body: PinBody, response: Response, me: User = Depends(get_current_user)):
-    _check_pin(me, body.pin)
+def open_locked(body: PinBody, response: Response, me: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    _check_pin(session, me, body.pin)
     set_unlock_cookie(response, me)
     return {"open": True, "minutes": UNLOCK_MINUTES}
 

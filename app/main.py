@@ -14,7 +14,7 @@ from . import (
     profiles, settings, ws,
 )
 from .db import engine, init_db
-from .models import Attachment, Message, Reaction, utcnow
+from .models import Attachment, Message, Reaction, RevokedToken, utcnow
 from .services import ensure_bot_user
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -32,6 +32,8 @@ def purge_expired_messages() -> int:
         result = session.execute(delete(Message).where(expired))
         if attachment_ids:
             session.execute(delete(Attachment).where(col(Attachment.id).in_(attachment_ids)))
+        # Logged-out cookies that would have expired by now anyway.
+        session.execute(delete(RevokedToken).where(col(RevokedToken.expires_at) <= utcnow()))
         session.commit()
         return result.rowcount or 0
 
@@ -57,6 +59,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="UhlWave", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Extra browser protections on every response. Routes that set their own
+    stricter rules (file downloads, photos) keep theirs."""
+    response = await call_next(request)
+    h = response.headers
+    h.setdefault("X-Frame-Options", "DENY")                      # no showing UhlWave inside another site
+    h.setdefault("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("Referrer-Policy", "same-origin")                # links you open don't learn chat addresses
+    h.setdefault("Permissions-Policy", "camera=(self), microphone=(self), geolocation=(self)")
+    return response
+
 app.include_router(auth.router)
 app.include_router(api.router)
 app.include_router(settings.router)

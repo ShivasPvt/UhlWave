@@ -208,10 +208,11 @@
           <form id="username-form">
             <label class="field" for="new-username"><span class="field__label">Username</span></label>
             <div class="inline-form">
-              <input id="new-username" class="input" autocomplete="off" maxlength="30">
-              <button class="btn btn--primary">Save</button>
+              <input id="new-username" class="input" autocomplete="off" maxlength="30" aria-describedby="new-username-note">
+              <button id="username-save" class="btn btn--primary">Save</button>
             </div>
-            <p class="field__hint">3–30 letters, numbers or underscores. People find you by this.</p>
+            <p id="new-username-note" class="field__hint" aria-live="polite">3–30 letters, numbers or underscores. People find you by this.</p>
+            <div id="new-username-suggest" class="name-suggest hidden"></div>
           </form>
         </div>
 

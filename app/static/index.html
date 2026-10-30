@@ -55,8 +55,12 @@
           <label class="field">
             <span class="field__label">Username</span>
             <input id="username" name="username" class="input" autocomplete="username" required
-                   minlength="3" maxlength="30" pattern="[A-Za-z0-9_]+">
+                   minlength="3" maxlength="30" pattern="[A-Za-z0-9_]+" aria-describedby="username-note">
           </label>
+          <div id="username-check" class="name-check hidden">
+            <p id="username-note" class="field__hint" aria-live="polite"></p>
+            <div id="username-suggest" class="name-suggest hidden"></div>
+          </div>
           <div class="field">
             <label class="field__label" for="password">Password</label>
             <div class="pw-wrap">

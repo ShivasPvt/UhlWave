@@ -10,6 +10,8 @@ with every request, including when it opens the WebSocket.
 from datetime import datetime, timedelta, timezone
 
 import re
+import time
+import secrets
 
 import bcrypt
 import jwt
@@ -18,11 +20,15 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .config import COOKIE_SECURE, GOOGLE_ALLOWED_DOMAIN, GOOGLE_CLIENT_ID, JWT_EXPIRE_HOURS, JWT_SECRET
 from .db import get_session
-from .models import User
+from .models import RevokedToken, User
+from .security import (
+    clear_login_failures, client_ip, login_ip_limiter, login_wait_seconds, record_login_failure, too_many_logins,
+)
 from .services import user_out
 
 COOKIE_NAME = "access_token"
@@ -48,19 +54,37 @@ def verify_password(password: str, password_hash: str) -> bool:
 def create_token(user: User) -> str:
     expires = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS)
     # "v" ties the token to the user's token_version; "Log out of all devices" bumps it.
-    payload = {"sub": str(user.id), "v": user.token_version, "exp": expires}
+    # "jti" names this one login, so logging out can cancel exactly this cookie.
+    payload = {"sub": str(user.id), "v": user.token_version, "exp": expires, "jti": secrets.token_urlsafe(16)}
     return jwt.encode(payload, JWT_SECRET, algorithm=ALGORITHM)
 
 
-def user_from_token(token: str | None, session: Session) -> User | None:
+def _token_claims(token: str | None) -> dict | None:
+    """The claims of a valid login token, or None. Tokens made for anything else
+    (like the 15-minute chat-unlock cookie) carry a "purpose" and are refused here."""
     if not token:
         return None
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+    except jwt.PyJWTError:
+        return None
+    if "purpose" in payload:
+        return None
+    return payload
+
+
+def user_from_token(token: str | None, session: Session) -> User | None:
+    payload = _token_claims(token)
+    if payload is None:
+        return None
+    try:
         user_id = int(payload["sub"])
         version = int(payload.get("v", 0))
-    except (jwt.PyJWTError, KeyError, ValueError, TypeError):
+    except (KeyError, ValueError, TypeError):
         return None
+    jti = payload.get("jti")
+    if jti and session.get(RevokedToken, str(jti)) is not None:
+        return None  # this login was logged out
     user = session.get(User, user_id)
     if user is None or user.is_bot or version != user.token_version:
         return None
@@ -103,7 +127,7 @@ def _username_from_email(session: Session, email: str) -> str:
     if len(base) < 3:
         base = (base + "_user")[:24].strip("_") or "user"
     candidate, n = base, 1
-    while session.exec(select(User).where(User.username == candidate)).first():
+    while username_problem(session, candidate) is not None:
         n += 1
         candidate = f"{base}{n}"
     return candidate
@@ -112,6 +136,49 @@ def _username_from_email(session: Session, email: str) -> str:
 # ---- routes --------------------------------------------------------------
 
 USERNAME_PATTERN = r"^[A-Za-z0-9_]+$"
+USERNAME_RE = re.compile(r"^[a-z0-9_]{3,30}$")
+
+# Names nobody can take, so no one can pretend to be the app, the AI or the staff.
+RESERVED_USERNAMES = {
+    "ai", "admin", "administrator", "root", "system", "support", "help", "helpdesk", "staff", "team",
+    "moderator", "mod", "mods", "official", "uhlwave", "uhl_wave", "security", "everyone", "here",
+    "me", "you", "null", "undefined", "anonymous", "deleted", "deleted_user", "iitmandi", "iit_mandi",
+}
+
+
+def username_problem(session: Session, username: str, me_id: int | None = None) -> str | None:
+    """Why this username can't be used, or None if it's free. Usernames are
+    stored in lowercase, so "Meera" and "meera" are the same name: one per person."""
+    name = (username or "").strip().lower()
+    if len(name) < 3:
+        return "Usernames need at least 3 characters."
+    if len(name) > 30:
+        return "Usernames can be at most 30 characters."
+    if not USERNAME_RE.match(name):
+        return "Use only letters, numbers and underscores."
+    if name in RESERVED_USERNAMES:
+        return "That username is reserved. Try another."
+    owner = session.exec(select(User).where(User.username == name)).first()
+    if owner is not None and owner.id != me_id:
+        return "That username is taken. Try another."
+    return None
+
+
+def suggest_usernames(session: Session, wanted: str, count: int = 3) -> list[str]:
+    """A few free names close to what someone typed: meera -> meera_27, meera07, meera_iitm."""
+    base = re.sub(r"[^a-z0-9_]+", "", (wanted or "").lower())[:24].strip("_") or "user"
+    if len(base) < 3:
+        base = (base + "_user")[:24]
+    ideas = [f"{base}_{secrets.randbelow(90) + 10}", f"{base}{secrets.randbelow(900) + 100}", f"{base}_iitm",
+             f"the_{base}", f"{base}_{secrets.randbelow(9000) + 1000}"]
+    out = []
+    for idea in ideas:
+        idea = idea[:30]
+        if idea not in out and username_problem(session, idea) is None:
+            out.append(idea)
+        if len(out) == count:
+            break
+    return out
 
 
 # Passwords people pick most often; nobody gets to use these.
@@ -153,21 +220,85 @@ def register(body: RegisterBody, response: Response, session: Session = Depends(
     problem = password_problem(body.password, username)
     if problem:
         raise HTTPException(422, problem)
-    if session.exec(select(User).where(User.username == username)).first():
-        raise HTTPException(status.HTTP_409_CONFLICT, "That username is taken. Try another.")
+    name_problem = username_problem(session, username)
+    if name_problem:
+        code = status.HTTP_409_CONFLICT if "taken" in name_problem or "reserved" in name_problem else 422
+        raise HTTPException(code, name_problem)
     user = User(username=username, password_hash=hash_password(body.password))
     session.add(user)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:  # someone grabbed the same name a moment earlier
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "That username was just taken. Try another.")
     session.refresh(user)
     set_login_cookie(response, user)
     return user_out(user)
 
 
+# Live "is this username free?" for the sign-up and Settings forms. Limited per
+# visitor so it can't be used to list every account quickly.
+_name_checks: dict[str, list[float]] = {}
+NAME_CHECKS_PER_MINUTE = 60
+
+
+@router.get("/username-available")
+def username_available(request: Request, username: str = "", session: Session = Depends(get_session)):
+    now = time.monotonic()
+    who = client_ip(request)
+    recent = [t for t in _name_checks.get(who, []) if now - t < 60]
+    if len(recent) >= NAME_CHECKS_PER_MINUTE:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Slow down a little, then try again.")
+    recent.append(now)
+    _name_checks[who] = recent
+    if len(_name_checks) > 5000:  # forget old visitors
+        for key in [k for k, v in _name_checks.items() if not v or now - v[-1] > 60]:
+            _name_checks.pop(key, None)
+
+    me = user_from_token(request.cookies.get(COOKIE_NAME), session)
+    name = username.strip().lower()
+    problem = username_problem(session, name, me.id if me else None)
+    taken = problem is not None and ("taken" in problem or "reserved" in problem)
+    return {
+        "username": name,
+        "available": problem is None,
+        "yours": bool(me and me.username == name),
+        "reason": problem,
+        "suggestions": suggest_usernames(session, name) if taken else [],
+    }
+
+
+# Checked against when the username doesn't exist, so a wrong username takes as long
+# as a wrong password and can't be told apart by timing.
+_DUMMY_HASH = bcrypt.hashpw(b"no-such-user", bcrypt.gensalt()).decode()
+
+
 @router.post("/login")
-def login(body: LoginBody, response: Response, session: Session = Depends(get_session)):
-    user = session.exec(select(User).where(User.username == body.username.lower())).first()
-    if user is None or user.is_bot or not verify_password(body.password, user.password_hash):
+def login(body: LoginBody, request: Request, response: Response, session: Session = Depends(get_session)):
+    ip = client_ip(request)
+    wait = login_ip_limiter.blocked(f"ip:{ip}")
+    if wait:
+        raise too_many_logins(wait)
+    user = session.exec(select(User).where(User.username == body.username.strip().lower())).first()
+    # An account that has had too many wrong passwords recently pauses for a while,
+    # whoever is trying. Correct guesses during the pause are refused too.
+    wait = login_wait_seconds(user)
+    if wait:
+        raise too_many_logins(wait)
+    if user is None or user.is_bot:
+        verify_password(body.password, _DUMMY_HASH)
+        login_ip_limiter.hit(f"ip:{ip}")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password.")
+    if not verify_password(body.password, user.password_hash):
+        record_login_failure(user)
+        session.add(user)
+        session.commit()
+        login_ip_limiter.hit(f"ip:{ip}")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password.")
+    if user.login_failures:
+        clear_login_failures(user)
+        session.add(user)
+        session.commit()
     set_login_cookie(response, user)
     return user_out(user)
 
@@ -222,7 +353,14 @@ def google_login(body: GoogleBody, response: Response, session: Session = Depend
 
 
 @router.post("/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response, session: Session = Depends(get_session)):
+    """Log out this browser. The cookie is also cancelled on the server, so a copy
+    of it (from another device or a stolen backup) stops working too."""
+    payload = _token_claims(request.cookies.get(COOKIE_NAME))
+    if payload and payload.get("jti") and session.get(RevokedToken, str(payload["jti"])) is None:
+        expires = datetime.fromtimestamp(int(payload.get("exp", 0)), tz=timezone.utc)
+        session.add(RevokedToken(jti=str(payload["jti"]), expires_at=expires))
+        session.commit()
     response.delete_cookie(COOKIE_NAME)
     return {"ok": True}
 

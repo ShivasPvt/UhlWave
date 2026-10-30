@@ -22,7 +22,18 @@ def _database_url() -> str:
 
 DATABASE_URL = _database_url()
 
-JWT_SECRET = os.getenv("JWT_SECRET", "dev-only-secret-change-me-before-deploying")
+# Signs login cookies. Anyone who knows it can log in as anyone, so there is no
+# built-in default: in production (COOKIE_SECURE=true) the app refuses to start
+# without a real one, and on a laptop it makes a random one for this run (you'll
+# just be logged out when the server restarts).
+_PLACEHOLDER_SECRETS = {"", "dev-only-secret-change-me-before-deploying", "replace-me-with-a-long-random-string", "change-me", "secret"}
+_jwt_secret = os.getenv("JWT_SECRET", "").strip()
+if _jwt_secret in _PLACEHOLDER_SECRETS or len(_jwt_secret) < 16:
+    if os.getenv("COOKIE_SECURE", "false").lower() == "true":
+        raise RuntimeError("JWT_SECRET is missing or too short. Set a long random value (32+ characters) before deploying.")
+    import secrets as _secrets
+    _jwt_secret = _secrets.token_urlsafe(48)
+JWT_SECRET = _jwt_secret
 JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "72"))
 
 # Set to "true" when deployed behind HTTPS (Render does this) so the
@@ -84,6 +95,19 @@ HF_TOKEN = os.getenv("HF_TOKEN", "").strip()
 HF_IMAGE_MODEL = os.getenv("HF_IMAGE_MODEL", "black-forest-labs/FLUX.1-schnell")
 # How many pictures one person can make per hour, so nobody burns through the free credits.
 IMAGES_PER_HOUR = int(os.getenv("IMAGES_PER_HOUR", "10"))
+
+# ---- abuse limits (see app/security.py) ----
+# Text answers from @ai per person per hour, so one person can't use up the AI key for everyone.
+AI_REPLIES_PER_HOUR = int(os.getenv("AI_REPLIES_PER_HOUR", "30"))
+# Messages (text, files, GIFs, places) one person can send in a short burst.
+MESSAGE_BURST = int(os.getenv("MESSAGE_BURST", "30"))
+MESSAGE_BURST_SECONDS = int(os.getenv("MESSAGE_BURST_SECONDS", "20"))
+# Wrong passwords allowed per account before it pauses logins for LOGIN_LOCK_MINUTES.
+LOGIN_MAX_FAILURES = int(os.getenv("LOGIN_MAX_FAILURES", "10"))
+LOGIN_LOCK_MINUTES = int(os.getenv("LOGIN_LOCK_MINUTES", "15"))
+# Behind a hosting proxy (Render), the visitor's real address is the last entry the
+# proxy adds to X-Forwarded-For. Set to "false" when nothing sits in front of the app.
+TRUST_PROXY = os.getenv("TRUST_PROXY", "false").lower() == "true"
 
 # ---- Voice and video calls (see app/calls.py) ----
 # Calls connect browsers directly. STUN finds a route on most networks; strict

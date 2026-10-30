@@ -177,7 +177,7 @@ client's *Authorized JavaScript origins* and set `GOOGLE_CLIENT_ID`.
 |---|---|---|
 | `DATABASE_URL` | for deployment | Postgres connection string. Defaults to local SQLite. |
 | `MESSAGE_KEY` | yes, keep it safe | 32 random bytes (base64) that encrypt stored messages and files. Lose it and stored chats can't be read. Locally, one is made in `.message_key` if unset. |
-| `JWT_SECRET` | yes, in production | Signs login tokens. Long and random. |
+| `JWT_SECRET` | yes, in production | Signs login tokens. Long and random (32+ characters). With `COOKIE_SECURE=true` the app refuses to start without one; locally a random one is made per run. |
 | `COOKIE_SECURE` | in production | `true` behind HTTPS so cookies are never sent unencrypted. |
 | `LLM_API_KEY` | for AI | Key for the chat API. Stays on the server. |
 | `GOOGLE_CLIENT_ID` | for Google sign-in | OAuth client ID (Web application). Empty turns the button off. |
@@ -189,6 +189,10 @@ client's *Authorized JavaScript origins* and set `GOOGLE_CLIENT_ID`.
 | `HF_TOKEN` | for `/imagine` | Hugging Face token (free credits). Or use `POLLINATIONS_API_KEY`. |
 | `POLLINATIONS_API_KEY` | no | Alternative image service. With no key at all, a keyless fallback is tried. |
 | `IMAGE_PROVIDER`, `IMAGES_PER_HOUR` | no | `auto`/`huggingface`/`pollinations`; pictures per person per hour (10). |
+| `AI_REPLIES_PER_HOUR` | no | `@ai` text answers per person per hour (30), so nobody can use up the AI key. |
+| `MESSAGE_BURST`, `MESSAGE_BURST_SECONDS` | no | Messages one person can send in a burst (30 per 20 s). |
+| `LOGIN_MAX_FAILURES`, `LOGIN_LOCK_MINUTES` | no | Wrong passwords per account before logins pause (10), and for how long (15 min). |
+| `TRUST_PROXY` | on Render | `true` behind a hosting proxy: the visitor's address is the last `X-Forwarded-For` entry. Leave `false` otherwise. |
 | `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL` | for strict networks | A TURN relay so calls connect through college Wi-Fi or mobile data. |
 
 ## Project layout

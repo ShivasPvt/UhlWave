@@ -8,6 +8,11 @@ from pathlib import Path
 _tmp = tempfile.mkdtemp()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
 os.environ["LLM_API_KEY"] = ""
+# Generous limits for the test suite (which sends many messages quickly);
+# tests/test_security_fixes.py checks the limits themselves.
+os.environ.setdefault("MESSAGE_BURST", "10000")
+os.environ.setdefault("AI_REPLIES_PER_HOUR", "10000")
+os.environ.setdefault("LOGIN_MAX_FAILURES", "10")
 os.environ["MESSAGE_KEY"] = "dGVzdC1rZXktZm9yLXVobHdhdmUtdGVzdHMtMzJieXQ="  # fixed 32-byte test key
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

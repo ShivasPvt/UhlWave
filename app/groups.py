@@ -334,7 +334,7 @@ def invite_preview(code: str, me: User = Depends(get_current_user), session: Ses
         "id": group.id,
         "title": group.name,
         "description": group.description,
-        "avatar_url": avatar_url(group.avatar_id),
+        "avatar_url": f"{avatar_url(group.avatar_id)}?invite={group.invite_code}" if group.avatar_id else None,
         "member_count": len(member_ids(session, group.id)),
         "already_member": is_member(session, group.id, me.id),
     }

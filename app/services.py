@@ -24,9 +24,10 @@ def avatar_url(attachment_id: int | None) -> str | None:
     return f"/api/avatars/{attachment_id}" if attachment_id else None
 
 
-def user_out(user: User) -> dict:
+def user_out(user: User, hide_presence: bool = False) -> dict:
     # People who turned off "Show online status" always look offline, with no last-seen time.
-    visible = user.is_bot or user.show_presence
+    # hide_presence: the viewer and this person have blocked each other (either way).
+    visible = user.is_bot or (user.show_presence and not hide_presence)
     return {
         "id": user.id,
         "username": user.username,
@@ -184,6 +185,28 @@ def membership(session: Session, conversation_id: int, user_id: int) -> Conversa
     return session.get(ConversationMember, (conversation_id, user_id))
 
 
+def visible_from(session: Session, conversation_id: int, user_id: int) -> datetime | None:
+    """In a group, people only see messages sent after they joined (like WhatsApp),
+    so someone added later can't scroll back through earlier conversations.
+    Returns that moment, or None when everything is visible (one-to-one chats)."""
+    conversation = session.get(Conversation, conversation_id)
+    if conversation is None or conversation.type != "group":
+        return None
+    m = session.get(ConversationMember, (conversation_id, user_id))
+    return m.joined_at if m else None
+
+
+def since(joined: datetime | None):
+    """SQL condition: messages this member can see (see visible_from)."""
+    return col(Message.created_at) >= joined if joined is not None else True
+
+
+def seen_after_joining(message: Message, joined: datetime | None) -> bool:
+    if joined is None:
+        return True
+    return message.created_at.replace(tzinfo=None) >= joined.replace(tzinfo=None)
+
+
 def is_admin(session: Session, conversation: Conversation, user_id: int) -> bool:
     """Group admins manage members, roles and the invite link. If a group somehow
     has no admins left (they all left or deleted their accounts), everyone is one."""
@@ -269,18 +292,20 @@ def conversation_out(session: Session, conversation: Conversation, me: User) -> 
     roles = {u.id: m for u, m in rows}
     mine = roles.get(me.id)
     others = [u for u in people if u.id != me.id]
+    joined = mine.joined_at if (mine and conversation.type == "group") else None
     row = session.exec(
         select(Message, User)
         .join(User, Message.sender_id == User.id)
-        .where(Message.conversation_id == conversation.id, not_expired())
+        .where(Message.conversation_id == conversation.id, not_expired(), since(joined))
         .order_by(Message.id.desc())
         .limit(1)
     ).first()
     is_group = conversation.type == "group"
     admin = is_admin(session, conversation, me.id)
+    hidden = blocked_ids(session, me.id)
     member_list = []
     for u in people:
-        item = user_out(u)
+        item = user_out(u, hide_presence=u.id in hidden)
         if is_group:
             item["role"] = roles[u.id].role
             item["tag"] = roles[u.id].tag
@@ -331,6 +356,23 @@ def has_blocked(session: Session, blocker_id: int, blocked_id: int) -> bool:
 
 def blocked_either_way(session: Session, a: int, b: int) -> bool:
     return has_blocked(session, a, b) or has_blocked(session, b, a)
+
+
+def blocked_ids(session: Session, user_id: int) -> set[int]:
+    """Everyone this person blocked, plus everyone who blocked them."""
+    mine = session.exec(select(Block.blocked_id).where(Block.blocker_id == user_id)).all()
+    theirs = session.exec(select(Block.blocker_id).where(Block.blocked_id == user_id)).all()
+    return set(mine) | set(theirs)
+
+
+async def broadcast_presence(session: Session, user_id: int, online: bool) -> None:
+    """Tell people this person came online or went offline, except anyone on
+    either side of a block: a blocked person can't watch when you're around."""
+    hidden = blocked_ids(session, user_id) | {user_id}
+    await manager.send_to_users(
+        [uid for uid in manager.active if uid not in hidden],
+        {"type": "presence", "user_id": user_id, "online": online},
+    )
 
 
 # ---- saving ------------------------------------------------------------------

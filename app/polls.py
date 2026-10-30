@@ -15,10 +15,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, delete, select
 
 from .auth import get_current_user
+from .security import message_problem
 from .db import get_session
 from .manager import manager
 from .models import Conversation, Message, Poll, PollOption, PollVote, User
-from .services import is_member, load_message_out, member_ids, save_message, send_problem
+from .services import is_member, load_message_out, member_ids, save_message, seen_after_joining, send_problem, visible_from
 
 router = APIRouter(prefix="/api", tags=["polls"])
 
@@ -47,6 +48,9 @@ async def create_poll(conversation_id: int, body: NewPoll, me: User = Depends(ge
         raise HTTPException(status.HTTP_404_NOT_FOUND if not_in_chat else status.HTTP_403_FORBIDDEN, problem)
     if session.get(Conversation, conversation_id).type == "secret":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Polls aren't available in secret chats.")
+    too_fast = message_problem(me.id)
+    if too_fast:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, too_fast)
     question = body.question.strip()
     options = [o.strip()[:100] for o in body.options if o.strip()]
     if not question:
@@ -73,6 +77,8 @@ def _poll_for_member(session: Session, poll_id: int, me: User) -> tuple[Poll, Me
     poll = session.get(Poll, poll_id)
     message = session.get(Message, poll.message_id) if poll else None
     if poll is None or message is None or message.deleted_at is not None or not is_member(session, message.conversation_id, me.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Poll not found.")
+    if not seen_after_joining(message, visible_from(session, message.conversation_id, me.id)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Poll not found.")
     return poll, message
 

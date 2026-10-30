@@ -25,6 +25,7 @@ Server -> browser
 import asyncio
 import json
 import re
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlmodel import Session, select
@@ -38,9 +39,10 @@ from .db import engine
 from .imagegen import ImageGenError, check_quota, generate_image, image_quota_key, made_images
 from .manager import manager
 from .models import Attachment, Conversation, ConversationMember, Message, User, utcnow
+from .security import ai_problem, message_problem
 from .services import (
-    blocked_either_way, ensure_bot_user, is_member, member_ids, members,
-    messages_out, not_expired, save_message, send_problem,
+    blocked_either_way, broadcast_presence, ensure_bot_user, is_member, member_ids, members,
+    messages_out, not_expired, save_message, send_problem, since, visible_from,
 )
 
 router = APIRouter()
@@ -57,12 +59,25 @@ IMAGINE = re.compile(r"^/imagine\b\s*(.*)$", re.IGNORECASE | re.DOTALL)
 _background_tasks: set[asyncio.Task] = set()
 
 
+def _same_site(websocket: WebSocket) -> bool:
+    """Only our own pages may open the socket. Browsers always say which page is
+    opening it (Origin); another website trying to use a visitor's login is refused.
+    Non-browser clients (tests, scripts with their own cookie) send no Origin."""
+    origin = websocket.headers.get("origin")
+    if not origin:
+        return True
+    return urlparse(origin).netloc.lower() == (websocket.headers.get("host") or "").lower()
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     # 1. Who is this? The login cookie comes along with the WebSocket handshake.
     with Session(engine) as session:
         user = user_from_token(websocket.cookies.get(COOKIE_NAME), session)
     await websocket.accept()
+    if not _same_site(websocket):
+        await websocket.close(code=4403, reason="Wrong origin")
+        return
     if user is None:
         await websocket.close(code=4401, reason="Not logged in")
         return
@@ -72,7 +87,8 @@ async def websocket_endpoint(websocket: WebSocket):
     # 2. Register the socket and tell everyone if this person just came online
     #    (unless they've hidden their online status in Settings).
     if manager.connect(user_id, websocket) and user.show_presence:
-        await manager.broadcast({"type": "presence", "user_id": user_id, "online": True}, exclude=user_id)
+        with Session(engine) as session:
+            await broadcast_presence(session, user_id, True)
 
     # 3. Handle incoming events until the browser disconnects.
     try:
@@ -104,16 +120,14 @@ async def websocket_endpoint(websocket: WebSocket):
         gone = manager.disconnect(user_id, websocket)
         await calls.on_disconnect(user_id, websocket, fully_offline=gone)
         if gone:
-            announce = False
             with Session(engine) as session:
                 db_user = session.get(User, user_id)
                 if db_user:  # None if they just deleted their account
                     db_user.last_seen_at = utcnow()
                     session.add(db_user)
                     session.commit()
-                    announce = db_user.show_presence
-            if announce:
-                await manager.broadcast({"type": "presence", "user_id": user_id, "online": False})
+                    if db_user.show_presence:
+                        await broadcast_presence(session, user_id, False)
 
 
 async def handle_message(user_id: int, event: dict, websocket: WebSocket) -> None:
@@ -129,6 +143,10 @@ async def handle_message(user_id: int, event: dict, websocket: WebSocket) -> Non
         reply_to_id = None
     content = content.strip()
     if not content:
+        return
+    too_fast = message_problem(user_id)
+    if too_fast:
+        await websocket.send_json({"type": "error", "detail": too_fast, "client_id": client_id})
         return
 
     with Session(engine) as session:
@@ -163,7 +181,7 @@ async def handle_message(user_id: int, event: dict, websocket: WebSocket) -> Non
         _run_in_background(imagine_reply(conversation_id, imagine.group(1), user_id, disappear_seconds))
     elif should_ai_reply:
         # The AI's answer disappears on the same timer as the message that asked it.
-        start_ai_reply(conversation_id, disappear_seconds)
+        await request_ai_reply(conversation_id, user_id, disappear_seconds)
 
 
 async def handle_typing(user_id: int, username: str, event: dict) -> None:
@@ -223,9 +241,21 @@ def _run_in_background(coroutine) -> None:
     task.add_done_callback(_background_tasks.discard)
 
 
-def start_ai_reply(conversation_id: int, disappear_seconds: int = 0) -> None:
+def start_ai_reply(conversation_id: int, disappear_seconds: int = 0, asker_id: int | None = None) -> None:
     """Let the AI answer in the background, so the chat never waits on it."""
-    _run_in_background(ai_reply(conversation_id, disappear_seconds))
+    _run_in_background(ai_reply(conversation_id, disappear_seconds, asker_id))
+
+
+async def request_ai_reply(conversation_id: int, user_id: int, disappear_seconds: int = 0) -> bool:
+    """Start an @ai answer if this person still has some left this hour. Each answer
+    costs the AI key, so one person can't use it all up and switch the AI off for
+    everyone. Over the limit, only the asker is told; the chat isn't spammed."""
+    problem = ai_problem(user_id)
+    if problem:
+        await manager.send_to_user(user_id, {"type": "error", "detail": problem, "conversation_id": conversation_id})
+        return False
+    start_ai_reply(conversation_id, disappear_seconds, asker_id=user_id)
+    return True
 
 
 async def post_bot_image(conversation_id: int, prompt: str, data: bytes, content_type: str, disappear_seconds: int = 0) -> None:
@@ -282,14 +312,17 @@ def wants_ai_reply(session: Session, conversation_id: int, content: str) -> bool
     return bool(MENTION_AI.search(content)) or is_ai_chat(session, conversation_id)
 
 
-async def ai_reply(conversation_id: int, disappear_seconds: int = 0) -> None:
+async def ai_reply(conversation_id: int, disappear_seconds: int = 0, asker_id: int | None = None) -> None:
     with Session(engine) as session:
         bot = ensure_bot_user(session)
         bot_id, bot_name = bot.id, bot.username
+        # In a group, the AI only reads what the person asking can see, so it can't
+        # repeat messages from before they joined.
+        joined = visible_from(session, conversation_id, asker_id) if asker_id else None
         rows = session.exec(
             select(Message, User)
             .join(User, Message.sender_id == User.id)
-            .where(Message.conversation_id == conversation_id, not_expired())
+            .where(Message.conversation_id == conversation_id, not_expired(), since(joined))
             .order_by(Message.id.desc())
             .limit(AI_CONTEXT_MESSAGES)
         ).all()

@@ -27,10 +27,11 @@ from .folders import is_unlocked, locked_ids, require_open
 from .manager import manager
 from .models import Attachment, Conversation, ConversationMember, Message, Reaction, User, utcnow
 from .tools import reverse_geocode, search_places
-from .ws import is_ai_chat, start_ai_reply
+from .security import message_problem
+from .ws import is_ai_chat, request_ai_reply
 from .services import (
     is_member, load_message_out, member_ids, messages_out, not_expired, pinned_messages, save_message,
-    send_problem, system_message,
+    seen_after_joining, send_problem, since, system_message, visible_from,
 )
 
 router = APIRouter(prefix="/api", tags=["messages"])
@@ -76,6 +77,8 @@ def _visible_message(session: Session, message_id: int, me: User) -> Message:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found.")
     if message.expires_at is not None and message.expires_at.replace(tzinfo=None) <= utcnow().replace(tzinfo=None):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found.")
+    if not seen_after_joining(message, visible_from(session, message.conversation_id, me.id)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found.")  # sent before you joined the group
     return message
 
 
@@ -96,6 +99,9 @@ async def upload_attachment(
         not_in_chat = problem.startswith("You're not in")
         raise HTTPException(status.HTTP_404_NOT_FOUND if not_in_chat else status.HTTP_403_FORBIDDEN, problem)
     _not_secret(session, conversation_id)
+    too_fast = message_problem(me.id)
+    if too_fast:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, too_fast)
 
     chunks, size = [], 0
     async for chunk in request.stream():
@@ -128,7 +134,7 @@ async def upload_attachment(
     await manager.send_to_users(people, {"type": "message", "message": out, "client_id": request.headers.get("x-client-id")})
     # Send a photo, voice note or file straight to @ai and it answers, just like a text message.
     if talking_to_ai:
-        start_ai_reply(conversation_id, me.disappear_seconds)
+        await request_ai_reply(conversation_id, me.id, me.disappear_seconds)
     return out
 
 
@@ -178,6 +184,9 @@ async def share_location(
         not_in_chat = problem.startswith("You're not in")
         raise HTTPException(status.HTTP_404_NOT_FOUND if not_in_chat else status.HTTP_403_FORBIDDEN, problem)
     _not_secret(session, conversation_id)
+    too_fast = message_problem(me.id)
+    if too_fast:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, too_fast)
     lat, lon = round(body.latitude, 5), round(body.longitude, 5)  # about 1 m; more is false precision
     label = (body.label or "").strip() or await reverse_geocode(lat, lon) or "Shared location"
     out = save_message(session, conversation_id, me, label[:300], type="location", latitude=lat, longitude=lon)
@@ -185,7 +194,7 @@ async def share_location(
     talking_to_ai = is_ai_chat(session, conversation_id)
     await manager.send_to_users(people, {"type": "message", "message": out, "client_id": None})
     if talking_to_ai:
-        start_ai_reply(conversation_id, me.disappear_seconds)
+        await request_ai_reply(conversation_id, me.id, me.disappear_seconds)
     return out
 
 
@@ -325,6 +334,8 @@ def search_messages(
         .order_by(Message.id.desc())
         .limit(SEARCH_SCAN)
     ).all()
+    joined = {cid: visible_from(session, cid, me.id) for cid in {m.conversation_id for m, _ in candidates}}
+    candidates = [(m, u) for m, u in candidates if seen_after_joining(m, joined[m.conversation_id])]
     rows = _matching(candidates, q)[:30]
 
     titles: dict[int, str] = {}
@@ -420,7 +431,7 @@ def search_in_chat(
         select(Message, User).join(User, Message.sender_id == User.id)
         .where(
             Message.conversation_id == conversation_id, Message.type != "system",
-            col(Message.deleted_at).is_(None), not_expired(),
+            col(Message.deleted_at).is_(None), not_expired(), since(visible_from(session, conversation_id, me.id)),
         )
         .order_by(Message.id.desc()).limit(SEARCH_SCAN)
     ).all()
@@ -456,7 +467,7 @@ def chat_media(
         select(Message, User).join(User, Message.sender_id == User.id)
         .where(
             Message.conversation_id == conversation_id, col(Message.type).in_(MEDIA_KINDS[kind]),
-            col(Message.deleted_at).is_(None), not_expired(),
+            col(Message.deleted_at).is_(None), not_expired(), since(visible_from(session, conversation_id, me.id)),
         )
     )
     rows = session.exec(query.order_by(Message.id.desc()).limit(SEARCH_SCAN if kind == "links" else 200)).all()
@@ -505,6 +516,9 @@ async def send_sticker(
         not_in_chat = problem.startswith("You're not in")
         raise HTTPException(status.HTTP_404_NOT_FOUND if not_in_chat else status.HTTP_403_FORBIDDEN, problem)
     _not_secret(session, conversation_id)
+    too_fast = message_problem(me.id)
+    if too_fast:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, too_fast)
     if body.url:
         if not _giphy_url(body.url):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "That GIF address isn't from GIPHY.")
@@ -518,7 +532,7 @@ async def send_sticker(
     talking_to_ai = is_ai_chat(session, conversation_id)
     await manager.send_to_users(people, {"type": "message", "message": out, "client_id": request.headers.get("x-client-id")})
     if talking_to_ai:
-        start_ai_reply(conversation_id, me.disappear_seconds)
+        await request_ai_reply(conversation_id, me.id, me.disappear_seconds)
     return out
 
 

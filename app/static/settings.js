@@ -60,6 +60,7 @@ function renderSettings() {
   $("set-username").textContent = `@${s.username}`;
   $("set-signin").textContent = s.sign_in_method === "google" ? `Signed in with Google as ${s.email}` : "Signed in with a username and password";
   $("new-username").value = s.username;
+  if (typeof usernameNote === "function") { usernameNote("", USERNAME_HINT); usernameSuggestions([]); }
   $("delete-name").textContent = s.username;
 
   // Toggles stored on the server...
@@ -147,6 +148,59 @@ document.querySelectorAll("[data-local]").forEach((sw) => {
   });
 });
 
+// Live "is it free?" check while you type a new username (one per person; lowercase).
+var USERNAME_HINT = "3–30 letters, numbers or underscores. People find you by this.";
+let usernameTimer = null;
+let usernameLatest = "";
+function usernameNote(kind, text) {
+  const note = $("new-username-note");
+  note.className = `field__hint${kind ? ` field__hint--${kind}` : ""}`;
+  note.textContent = text;
+  $("new-username").classList.toggle("input--ok", kind === "ok");
+  $("new-username").classList.toggle("input--bad", kind === "bad");
+  $("username-save").disabled = kind === "bad" || kind === "busy";
+}
+function usernameSuggestions(list) {
+  const box = $("new-username-suggest");
+  box.replaceChildren();
+  box.classList.toggle("hidden", !list?.length);
+  if (!list?.length) return;
+  box.append(document.createTextNode("Free:"));
+  for (const name of list) {
+    const b = el("button", "", `@${name}`);
+    b.type = "button";
+    b.addEventListener("click", () => {
+      $("new-username").value = name;
+      checkNewUsername();
+    });
+    box.append(b);
+  }
+}
+function checkNewUsername() {
+  clearTimeout(usernameTimer);
+  const name = $("new-username").value.trim().toLowerCase();
+  usernameLatest = name;
+  usernameSuggestions([]);
+  if (!name || name === settings?.username) return usernameNote("", USERNAME_HINT);
+  if (name.length < 3) return usernameNote("bad", "At least 3 characters.");
+  if (!/^[a-z0-9_]+$/.test(name)) return usernameNote("bad", "Only letters, numbers and underscores.");
+  usernameNote("busy", "Checking…");
+  usernameTimer = setTimeout(async () => {
+    try {
+      const data = await api(`/api/auth/username-available?username=${encodeURIComponent(name)}`);
+      if (usernameLatest !== name) return;
+      if (data.available) usernameNote("ok", `✓ @${data.username} is available`);
+      else {
+        usernameNote("bad", `✗ ${data.reason}`);
+        usernameSuggestions(data.suggestions);
+      }
+    } catch {
+      if (usernameLatest === name) usernameNote("", "Couldn't check right now; we'll check when you save.");
+    }
+  }, 350);
+}
+$("new-username").addEventListener("input", checkNewUsername);
+
 $("username-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const username = $("new-username").value.trim();
@@ -156,9 +210,11 @@ $("username-form").addEventListener("submit", async (event) => {
     state.me.username = settings.username;
     $("me-name").textContent = `@${settings.username}`;
     renderSettings();
+    usernameNote("", USERNAME_HINT);
     flash("Username changed");
   } catch (error) {
     flash(error.message);
+    checkNewUsername();
   }
 });
 

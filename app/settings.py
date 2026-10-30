@@ -6,9 +6,10 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, delete, select, update
 
-from .auth import COOKIE_NAME, USERNAME_PATTERN, get_current_user, set_login_cookie
+from .auth import COOKIE_NAME, USERNAME_PATTERN, get_current_user, set_login_cookie, username_problem
 from .config import BOT_USERNAME
 from .db import get_session
 from .manager import manager
@@ -16,7 +17,7 @@ from .models import (
     Attachment, Block, Category, ChatRequest, Conversation, ConversationMember, Message, PollVote, Reaction, Report, User,
 )
 from .polls import delete_polls_for
-from .services import avatar_url, user_out
+from .services import avatar_url, broadcast_presence, user_out
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -86,7 +87,7 @@ async def update_settings(
 
     # Tell everyone straight away, so hiding your status takes effect without a reload.
     if presence_changed and manager.is_online(me.id):
-        await manager.broadcast({"type": "presence", "user_id": me.id, "online": me.show_presence}, exclude=me.id)
+        await broadcast_presence(session, me.id, me.show_presence)
     return settings_out(session, me)
 
 
@@ -99,11 +100,17 @@ def change_username(body: UsernameBody, me: User = Depends(get_current_user), se
     username = body.username.lower()
     if username == me.username:
         return settings_out(session, me)
-    if username == BOT_USERNAME or session.exec(select(User).where(User.username == username)).first():
-        raise HTTPException(status.HTTP_409_CONFLICT, "That username is taken. Try another.")
+    problem = username_problem(session, username, me.id)
+    if problem:
+        code = status.HTTP_409_CONFLICT if "taken" in problem or "reserved" in problem else 422
+        raise HTTPException(code, problem)
     me.username = username
     session.add(me)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:  # someone took it a moment earlier
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "That username was just taken. Try another.")
     session.refresh(me)
     return settings_out(session, me)
 

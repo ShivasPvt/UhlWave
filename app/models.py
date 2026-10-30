@@ -53,6 +53,12 @@ class User(SQLModel, table=True):
     e2ee_public_key: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     e2ee_private_wrapped: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     e2ee_updated_at: datetime | None = None
+    # Wrong passwords / chat-lock PINs in the current window (see app/security.py).
+    # Kept in the database so a server restart doesn't wipe the count.
+    login_failures: int = 0
+    login_failed_at: datetime | None = None
+    pin_failures: int = 0
+    pin_failed_at: datetime | None = None
 
 
 class Conversation(SQLModel, table=True):
@@ -219,3 +225,12 @@ class PollVote(SQLModel, table=True):
     option_id: int = Field(foreign_key="poll_options.id", primary_key=True)
     user_id: int = Field(foreign_key="users.id", primary_key=True, index=True)
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class RevokedToken(SQLModel, table=True):
+    """A login cookie that was logged out. It stays refused until it would have
+    expired anyway, then the row is cleaned up."""
+    __tablename__ = "revoked_tokens"
+
+    jti: str = Field(primary_key=True, max_length=64)
+    expires_at: datetime = Field(index=True)

@@ -10,7 +10,7 @@ from .chat_requests import create_direct_chat, direct_chat_between, needs_reques
 from .db import get_session
 from .folders import is_unlocked, locked_ids, require_open
 from .models import Conversation, ConversationMember, Message, User
-from .services import conversation_out, has_blocked, is_member, messages_out, not_expired, user_out
+from .services import blocked_ids, conversation_out, has_blocked, is_member, messages_out, not_expired, since, user_out, visible_from
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -25,7 +25,8 @@ def search_users(
     if q:
         query = query.where(col(User.username).contains(q.lower()))
     users = session.exec(query.order_by(User.username).limit(20)).all()
-    return [user_out(u) for u in users]
+    hidden = blocked_ids(session, me.id)
+    return [user_out(u, hide_presence=u.id in hidden) for u in users]
 
 
 @router.get("/conversations")
@@ -88,7 +89,7 @@ def message_history(
     query = (
         select(Message, User)
         .join(User, Message.sender_id == User.id)
-        .where(Message.conversation_id == conversation_id, not_expired())
+        .where(Message.conversation_id == conversation_id, not_expired(), since(visible_from(session, conversation_id, me.id)))
     )
     if before is not None:
         query = query.where(Message.id < before)

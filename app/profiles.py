@@ -9,6 +9,8 @@
 Photos are stored in the database like other attachments, so they survive
 redeploys on hosts with throwaway disks.
 """
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlmodel import Session, col, select
@@ -18,7 +20,7 @@ from .chat_requests import direct_chat_between
 from .db import get_session
 from .manager import manager
 from .models import Attachment, ChatRequest, Conversation, ConversationMember, User
-from .services import has_blocked, user_out
+from .services import blocked_either_way, has_blocked, user_out
 
 router = APIRouter(prefix="/api", tags=["profiles"])
 
@@ -88,7 +90,7 @@ def profile(username: str, me: User = Depends(get_current_user), session: Sessio
         ChatRequest.from_user_id == me.id, ChatRequest.to_user_id == user.id, ChatRequest.status == "pending",
     )).first() if user.id != me.id else None
     return {
-        **user_out(user),
+        **user_out(user, hide_presence=user.id != me.id and blocked_either_way(session, me.id, user.id)),
         "bio": user.bio,
         "groups_in_common": list(common),
         "conversation_id": chat.id if chat else None,
@@ -144,12 +146,22 @@ async def remove_avatar(me: User = Depends(get_current_user), session: Session =
 
 
 @router.get("/avatars/{attachment_id}")
-def show_avatar(attachment_id: int, me: User = Depends(get_current_user), session: Session = Depends(get_session)):
+def show_avatar(
+    attachment_id: int, invite: str | None = None,
+    me: User = Depends(get_current_user), session: Session = Depends(get_session),
+):
     # Only serve attachments that really are profile or group photos, never chat files.
+    # Profile photos are for anyone logged in. A group's photo is only for its members,
+    # or for someone holding the group's current invite link (the join preview shows it).
     is_avatar = session.exec(select(User.id).where(User.avatar_id == attachment_id)).first() is not None
     group = session.exec(select(Conversation).where(Conversation.avatar_id == attachment_id)).first()
-    if not is_avatar and group is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Photo not found.")
+    if not is_avatar:
+        if group is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Photo not found.")
+        member = session.get(ConversationMember, (group.id, me.id)) is not None
+        has_link = bool(invite and group.invite_code and secrets.compare_digest(invite, group.invite_code))
+        if not member and not has_link:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Photo not found.")
     attachment = session.get(Attachment, attachment_id)
     if attachment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Photo not found.")

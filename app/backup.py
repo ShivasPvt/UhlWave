@@ -19,7 +19,7 @@ from .auth import get_current_user
 from .db import get_session
 from .folders import is_unlocked, locked_ids, require_open
 from .models import Attachment, Conversation, ConversationMember, Message, User
-from .services import iso, is_member, members, not_expired
+from .services import iso, is_member, members, not_expired, since, visible_from
 
 router = APIRouter(prefix="/api", tags=["backup"])
 
@@ -32,10 +32,10 @@ def _title(conversation: Conversation, people: list[User], me: User) -> str:
     return ", ".join(u.username for u in people if u.id != me.id) or "Just you"
 
 
-def _rows(session: Session, conversation_id: int):
+def _rows(session: Session, conversation_id: int, me: User):
     return session.exec(
         select(Message, User).join(User, Message.sender_id == User.id)
-        .where(Message.conversation_id == conversation_id, not_expired())
+        .where(Message.conversation_id == conversation_id, not_expired(), since(visible_from(session, conversation_id, me.id)))
         .order_by(col(Message.id))
     ).all()
 
@@ -62,7 +62,7 @@ def backup(
         conversation = session.get(Conversation, conversation_id)
         people = members(session, conversation_id)
         messages = []
-        for m, u in _rows(session, conversation_id):
+        for m, u in _rows(session, conversation_id, me):
             text = "" if m.deleted_at else m.content
             if conversation.type == "secret" and m.type != "system" and text:
                 text = "[end-to-end encrypted: only readable in the app]"
@@ -113,7 +113,7 @@ def export_chat(conversation_id: int, request: Request, me: User = Depends(get_c
     people = members(session, conversation_id)
     title = _title(conversation, people, me)
     lines = [f"UhlWave chat: {title}", f"Exported {datetime.now(timezone.utc):%d %b %Y %H:%M} UTC", ""]
-    for m, u in _rows(session, conversation_id):
+    for m, u in _rows(session, conversation_id, me):
         when = m.created_at.strftime("%d/%m/%Y, %H:%M")
         if m.deleted_at:
             text = "This message was deleted"
